@@ -1,0 +1,4 @@
+ortools
+streamlit
+pandas
+pytest
