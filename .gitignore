@@ -1,0 +1,28 @@
+# Ambiente virtuale
+venv/
+.venv/
+env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# File temporanei
+*.log
+*.tmp

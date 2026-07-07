@@ -115,6 +115,37 @@ e fairness su tutte le settimane del periodo.
   Streamlit, che oggi si perdono alla chiusura dell'app
 - Export/import da Excel per il caricamento massivo di richieste
 
+## Deploy su Streamlit Community Cloud
+
+1. Inizializza git e fai push su una repo GitHub (pubblica o privata):
+   ```powershell
+   git init
+   git add .
+   git commit -m "Prima versione motore turnazione"
+   ```
+   poi crea la repo su GitHub e collegala (`git remote add origin ...`, `git push`).
+
+2. Vai su [share.streamlit.io](https://share.streamlit.io), accedi con GitHub,
+   clicca "New app" e seleziona repo/branch/`app.py` come file principale.
+
+3. **Importante sulla versione Python**: il file `runtime.txt` nel progetto
+   prova a richiedere Python 3.12 (la versione usata in sviluppo, compatibile
+   con `ortools`), ma ci sono segnalazioni recenti che Community Cloud lo
+   ignora in alcuni casi. **Verifica sempre manualmente** nel menu
+   "Advanced settings" durante il deploy che la versione Python selezionata
+   sia 3.12 (o comunque una versione per cui `ortools` ha una wheel
+   precompilata), altrimenti l'installazione delle dipendenze puo' fallire.
+
+4. Deploy: Community Cloud installa automaticamente da `requirements.txt`.
+
+**Limiti da tenere presenti**: l'app gratuita "dorme" dopo un periodo di
+inattivita' (si riattiva al primo accesso, con qualche secondo di attesa);
+`st.session_state` non e' persistente tra un risveglio e l'altro (i dati
+inseriti in sessione si perdono se l'app si riavvia); l'app e' raggiungibile
+pubblicamente da chiunque abbia il link. Per un uso reale con dati di
+personale ospedaliero, valutare hosting privato con autenticazione prima
+di andare oltre la fase di test/dimostrazione.
+
 ## Struttura progetto
 
 ```
