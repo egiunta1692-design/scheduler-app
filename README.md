@@ -23,10 +23,24 @@ pytest tests/ -v
 streamlit run app.py
 ```
 
-Si apre il browser in automatico. Tre schede. **Ogni intestazione giorno,
-in tutte le griglie e tabelle, mostra anche il giorno della settimana**
+Si apre il browser in automatico. Tre schede, **in quest'ordine anche nel
+codice** (non solo visivamente — importante per come Streamlit propaga gli
+aggiornamenti, vedi nota sotto). **Ogni intestazione giorno, in tutte le
+griglie e tabelle, mostra anche il giorno della settimana**
 (lun/mar/mer/gio/ven/sab/dom) accanto alla data.
 
+- **Regole & periodo** (prima scheda) — **numero di lavoratori** con
+  selettore numerico: aumentandolo aggiunge lavoratori con nome generato
+  automaticamente (`Nome<n> Cognome<n>`, da rinominare poi nella scheda
+  Lavoratori), diminuendolo li rimuove dal fondo; i lavoratori esistenti
+  e le modifiche gia' fatte (nome vero, ore, mai notti) non vengono
+  toccati. Poi anno e mese (il periodo si calcola da solo: parte dal
+  giorno 1 e si estende fino alla **domenica** che chiude la settimana
+  in cui cade l'ultimo giorno del mese, cosi' il vincolo di ore
+  settimanali lavora sempre su settimane complete lun-dom invece che su
+  una settimana finale spezzata a meta'. Esempio: se il mese finisce
+  venerdi' 31, il periodo si estende fino a domenica 2 del mese
+  successivo). Poi ore per fascia, notti consecutive, pesi fairness.
 - **Lavoratori** — tabella editabile: id, nome, ore contratto (specifiche
   per singolo lavoratore, nessun default globale nascosto), "mai notti"
 - **Calendario** — due griglie:
@@ -47,22 +61,27 @@ in tutte le griglie e tabelle, mostra anche il giorno della settimana**
      non supporta la colorazione di sfondo nelle griglie editabili
      (sono renderizzate su canvas), quindi le tre zone si distinguono
      con le icone nelle intestazioni invece che con colori.
-- **Regole & periodo** — anno e mese (il periodo si calcola da solo:
-  parte dal giorno 1 e si estende fino alla **domenica** che chiude la
-  settimana in cui cade l'ultimo giorno del mese, cosi' il vincolo di
-  ore settimanali lavora sempre su settimane complete lun-dom invece
-  che su una settimana finale spezzata a meta'. Esempio: se il mese
-  finisce venerdi' 31, il periodo si estende fino a domenica 2 del
-  mese successivo), ore per fascia, notti consecutive, pesi fairness
+
+**Nota su un bug corretto**: Streamlit esegue il codice di ogni scheda
+nell'ordine in cui compare nello script, non in base a quale scheda l'utente
+ha aperta. Prima "Regole & periodo" era l'ultima scheda nel codice: cambiare
+anno/mese aggiornava `session_state`, ma le altre schede (gia' eseguite
+sopra in quello stesso giro) mostravano ancora i valori vecchi fino al giro
+di esecuzione successivo. Spostando "Regole & periodo" per prima anche nel
+codice, gli aggiornamenti si propagano subito, nello stesso giro.
 
 Premi "Genera turni" per vedere:
 - lo schema turni colorato
 - la copertura effettiva vs fabbisogno (giorni in colonna, M/P/N in riga)
-- **Turni per lavoratore**: turni e ore per fascia (M/P/N), ore totali per
-  ciascuna settimana lun-dom del periodo (comprese le ore di situazione
-  iniziale e degli eventuali giorni nel mese successivo, per coerenza col
-  vincolo di ore settimanali del motore) e ore totali del solo mese di
-  riferimento selezionato
+- **Turni per lavoratore**: M/P/N, Totale turni, Ore M/P/N sono calcolati
+  **sul solo mese di riferimento selezionato** (escludono sia la
+  situazione iniziale del mese precedente sia l'eventuale sconfinamento
+  nel mese successivo). Le colonne "Ore sett.N" invece includono
+  volutamente anche le ore di situazione iniziale e degli eventuali
+  giorni nel mese successivo, per coerenza col vincolo di ore settimanali
+  del motore (che ragiona su settimane calendario complete lun-dom, non
+  sul solo mese). "Ore mese" segue lo stesso criterio di M/P/N: solo il
+  mese di riferimento
 - le richieste non soddisfatte e l'equilibrio del carico tra lavoratori
 
 ## Cosa fa il motore adesso (completo sui vincoli principali)

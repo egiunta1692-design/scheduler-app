@@ -322,7 +322,13 @@ def _init_state():
 
 def _sincronizza_griglie():
     """Riallinea le griglie calendario alla lista lavoratori corrente e
-    al periodo corrente, preservando i valori gia' inseriti dove possibile."""
+    al periodo corrente, preservando i valori gia' inseriti dove possibile.
+
+    IMPORTANTE: questa funzione va richiamata DOPO che i widget di
+    anno/mese/numero lavoratori (nella scheda Regole & periodo) hanno
+    aggiornato session_state in questo stesso giro di esecuzione, non
+    prima — altrimenti le altre schede userebbero ancora i valori
+    dell'esecuzione precedente (bug di interfaccia "un giro indietro")."""
     _aggiorna_periodo_da_mese()
 
     colonne_periodo = _colonne_periodo()
@@ -345,8 +351,35 @@ def _sincronizza_griglie():
     )
 
 
+def _sincronizza_numero_lavoratori(n_target: int):
+    """Aggiunge o rimuove lavoratori in fondo alla lista per raggiungere
+    n_target. I lavoratori aggiunti prendono nome/cognome generati
+    automaticamente (Nome<n> Cognome<n>); quelli gia' esistenti (e le
+    eventuali modifiche fatte a mano, es. nome vero o ore contrattuali
+    diverse) non vengono toccati."""
+    df = st.session_state.df_lavoratori
+    n_attuale = len(df)
+    if n_target == n_attuale:
+        return
+
+    if n_target > n_attuale:
+        nuove_righe = []
+        for i in range(n_attuale, n_target):
+            indice_persona = i + 1
+            nuove_righe.append({
+                "id": f"w{indice_persona}",
+                "nome": f"Nome{indice_persona} Cognome{indice_persona}",
+                "ore_settimanali_contratto": 36,
+                "mai_notti": False,
+            })
+        st.session_state.df_lavoratori = pd.concat(
+            [df, pd.DataFrame(nuove_righe)], ignore_index=True
+        )
+    else:
+        st.session_state.df_lavoratori = df.iloc[:n_target].reset_index(drop=True)
+
+
 _init_state()
-_sincronizza_griglie()
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +401,120 @@ with st.sidebar:
 
 st.title("Turnazione reparto")
 
-tab_lavoratori, tab_calendario, tab_regole = st.tabs(
-    ["Lavoratori", "Calendario", "Regole & periodo"]
+tab_regole, tab_lavoratori, tab_calendario = st.tabs(
+    ["Regole & periodo", "Lavoratori", "Calendario"]
 )
+
+# IMPORTANTE: questa scheda va PRIMA delle altre due nel codice (non solo
+# visivamente) perche' i suoi widget (numero lavoratori, anno, mese)
+# aggiornano session_state e vanno rieseguiti prima che le schede
+# Lavoratori/Calendario leggano quegli stessi valori nello stesso giro di
+# esecuzione. Streamlit esegue il codice di ogni `with tab:` nell'ordine
+# in cui compare nello script, indipendentemente da quale scheda l'utente
+# ha visivamente aperta — se questa scheda fosse dopo le altre (com'era
+# in origine), un cambio di mese o di numero lavoratori si sarebbe visto
+# nelle altre schede solo al giro di esecuzione successivo.
+with tab_regole:
+    st.subheader("Numero di lavoratori")
+    numero_lavoratori_attuale = len(st.session_state.df_lavoratori)
+    numero_lavoratori_target = st.number_input(
+        "Numero di lavoratori",
+        min_value=1, max_value=200,
+        value=numero_lavoratori_attuale,
+        step=1,
+        help=(
+            "Aggiunge o rimuove lavoratori in fondo alla lista (scheda "
+            "Lavoratori). I nuovi ricevono un nome generato automaticamente "
+            "(Nome<n> Cognome<n>), da modificare poi con il nome vero nella "
+            "scheda Lavoratori. I lavoratori esistenti e le eventuali "
+            "modifiche gia' fatte (nome, ore, mai notti) non vengono toccati."
+        ),
+    )
+    _sincronizza_numero_lavoratori(int(numero_lavoratori_target))
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Periodo")
+        st.session_state.periodo["anno"] = st.number_input(
+            "Anno", value=st.session_state.periodo["anno"], step=1
+        )
+        st.session_state.periodo["mese"] = st.number_input(
+            "Mese", value=st.session_state.periodo["mese"], min_value=1, max_value=12, step=1
+        )
+        # Sincronizza SUBITO periodo e griglie con i valori appena letti dai
+        # widget sopra, cosi' le schede Lavoratori e Calendario (che nel
+        # codice vengono dopo) vedono gia' i dati aggiornati in questo
+        # stesso giro di esecuzione.
+        _sincronizza_griglie()
+
+        p = st.session_state.periodo
+        data_inizio = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), 1)
+        data_fine = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), int(p["giorno_fine"]))
+        testo_periodo = (
+            f"Periodo elaborato: dal {data_inizio.strftime('%d/%m/%Y')} "
+            f"al {data_fine.strftime('%d/%m/%Y')} ({p['giorno_fine']} giorni)."
+        )
+        if data_fine.month != int(p["mese"]) or data_fine.year != int(p["anno"]):
+            testo_periodo += (
+                " Il periodo si estende oltre la fine del mese selezionato, fino "
+                "alla domenica che chiude l'ultima settimana, cosi' il vincolo di "
+                "ore settimanali lavora sempre su settimane complete."
+            )
+        st.caption(testo_periodo)
+
+        st.subheader("Regole contrattuali")
+        st.session_state.regole["max_notti_consecutive"] = st.number_input(
+            "Massimo notti consecutive", value=st.session_state.regole["max_notti_consecutive"], min_value=1, max_value=5
+        )
+        st.session_state.regole["ore_M"] = st.number_input(
+            "Ore turno Mattino", value=st.session_state.regole["ore_M"], min_value=1, max_value=12
+        )
+        st.session_state.regole["ore_P"] = st.number_input(
+            "Ore turno Pomeriggio", value=st.session_state.regole["ore_P"], min_value=1, max_value=12
+        )
+        st.session_state.regole["ore_N"] = st.number_input(
+            "Ore turno Notte", value=st.session_state.regole["ore_N"], min_value=1, max_value=12
+        )
+
+    with col2:
+        st.subheader("Fairness (equilibrio tra lavoratori e giorni)")
+        st.session_state.fairness["bilancia_fasce"] = st.checkbox(
+            "Bilancia il numero di turni per fascia tra i lavoratori",
+            value=st.session_state.fairness["bilancia_fasce"],
+        )
+        st.session_state.fairness["bilancia_giorni_settimana"] = st.checkbox(
+            "Bilancia il totale di giorni lavorati tra i lavoratori",
+            value=st.session_state.fairness["bilancia_giorni_settimana"],
+        )
+        st.session_state.fairness["bilancia_ore_settimanali"] = st.checkbox(
+            "Bilancia le ore lavorate tra i lavoratori, settimana per settimana",
+            value=st.session_state.fairness["bilancia_ore_settimanali"],
+            help=(
+                "Bilancia il totale sull'intero periodo non basta: senza "
+                "questa opzione una singola settimana potrebbe restare "
+                "molto sbilanciata (es. qualcuno con 8 ore, qualcun altro "
+                "con 32) anche se sul periodo intero i totali si "
+                "pareggiano. Include anche le ore gia' maturate nella "
+                "situazione iniziale per la settimana a cavallo col mese "
+                "precedente."
+            ),
+        )
+        st.session_state.fairness["bilancia_copertura_giornaliera"] = st.checkbox(
+            "Spalma il surplus di copertura il piu' possibile tra i giorni",
+            value=st.session_state.fairness["bilancia_copertura_giornaliera"],
+            help=(
+                "Il fabbisogno minimo e' un vincolo di 'almeno N persone', quindi "
+                "il motore puo' assegnare piu' persone del minimo in certi giorni. "
+                "Con questa opzione attiva, un eventuale surplus si distribuisce il "
+                "piu' possibile su tutti i giorni invece di concentrarsi su pochi."
+            ),
+        )
+        st.session_state.fairness["peso_fairness"] = st.slider(
+            "Peso della fairness rispetto alle richieste dei lavoratori",
+            min_value=1, max_value=20, value=st.session_state.fairness["peso_fairness"],
+            help="Basso = le preferenze dei lavoratori contano di piu' dell'equilibrio del team.",
+        )
 
 with tab_lavoratori:
     st.caption("Elenco del personale del reparto per questa categoria (infermieri o oss).")
@@ -466,90 +610,6 @@ with tab_calendario:
             )
 
         st.dataframe(styler_anteprima, use_container_width=True)
-
-with tab_regole:
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Periodo")
-        st.session_state.periodo["anno"] = st.number_input(
-            "Anno", value=st.session_state.periodo["anno"], step=1
-        )
-        st.session_state.periodo["mese"] = st.number_input(
-            "Mese", value=st.session_state.periodo["mese"], min_value=1, max_value=12, step=1
-        )
-        _aggiorna_periodo_da_mese()
-        p = st.session_state.periodo
-        data_inizio = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), 1)
-        data_fine = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), int(p["giorno_fine"]))
-        testo_periodo = (
-            f"Periodo elaborato: dal {data_inizio.strftime('%d/%m/%Y')} "
-            f"al {data_fine.strftime('%d/%m/%Y')} ({p['giorno_fine']} giorni)."
-        )
-        if data_fine.month != int(p["mese"]) or data_fine.year != int(p["anno"]):
-            testo_periodo += (
-                " Il periodo si estende oltre la fine del mese selezionato, fino "
-                "alla domenica che chiude l'ultima settimana, cosi' il vincolo di "
-                "ore settimanali lavora sempre su settimane complete."
-            )
-        st.caption(testo_periodo)
-        st.caption(
-            "Se cambi anno o mese, vai nella scheda 'Calendario': le colonne dei "
-            "giorni e la situazione iniziale del mese precedente si aggiornano da sole."
-        )
-
-        st.subheader("Regole contrattuali")
-        st.session_state.regole["max_notti_consecutive"] = st.number_input(
-            "Massimo notti consecutive", value=st.session_state.regole["max_notti_consecutive"], min_value=1, max_value=5
-        )
-        st.session_state.regole["ore_M"] = st.number_input(
-            "Ore turno Mattino", value=st.session_state.regole["ore_M"], min_value=1, max_value=12
-        )
-        st.session_state.regole["ore_P"] = st.number_input(
-            "Ore turno Pomeriggio", value=st.session_state.regole["ore_P"], min_value=1, max_value=12
-        )
-        st.session_state.regole["ore_N"] = st.number_input(
-            "Ore turno Notte", value=st.session_state.regole["ore_N"], min_value=1, max_value=12
-        )
-
-    with col2:
-        st.subheader("Fairness (equilibrio tra lavoratori e giorni)")
-        st.session_state.fairness["bilancia_fasce"] = st.checkbox(
-            "Bilancia il numero di turni per fascia tra i lavoratori",
-            value=st.session_state.fairness["bilancia_fasce"],
-        )
-        st.session_state.fairness["bilancia_giorni_settimana"] = st.checkbox(
-            "Bilancia il totale di giorni lavorati tra i lavoratori",
-            value=st.session_state.fairness["bilancia_giorni_settimana"],
-        )
-        st.session_state.fairness["bilancia_ore_settimanali"] = st.checkbox(
-            "Bilancia le ore lavorate tra i lavoratori, settimana per settimana",
-            value=st.session_state.fairness["bilancia_ore_settimanali"],
-            help=(
-                "Bilancia il totale sull'intero periodo non basta: senza "
-                "questa opzione una singola settimana potrebbe restare "
-                "molto sbilanciata (es. qualcuno con 8 ore, qualcun altro "
-                "con 32) anche se sul periodo intero i totali si "
-                "pareggiano. Include anche le ore gia' maturate nella "
-                "situazione iniziale per la settimana a cavallo col mese "
-                "precedente."
-            ),
-        )
-        st.session_state.fairness["bilancia_copertura_giornaliera"] = st.checkbox(
-            "Spalma il surplus di copertura il piu' possibile tra i giorni",
-            value=st.session_state.fairness["bilancia_copertura_giornaliera"],
-            help=(
-                "Il fabbisogno minimo e' un vincolo di 'almeno N persone', quindi "
-                "il motore puo' assegnare piu' persone del minimo in certi giorni. "
-                "Con questa opzione attiva, un eventuale surplus si distribuisce il "
-                "piu' possibile su tutti i giorni invece di concentrarsi su pochi."
-            ),
-        )
-        st.session_state.fairness["peso_fairness"] = st.slider(
-            "Peso della fairness rispetto alle richieste dei lavoratori",
-            min_value=1, max_value=20, value=st.session_state.fairness["peso_fairness"],
-            help="Basso = le preferenze dei lavoratori contano di piu' dell'equilibrio del team.",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -789,22 +849,20 @@ if risultato is not None:
         # Insights: turni e ore per lavoratore, per fascia / settimana / mese
         st.subheader("Turni per lavoratore")
         st.caption(
-            "Ore per settimana (lun-dom): includono anche le ore della "
-            "situazione iniziale (mese precedente) e degli eventuali giorni "
-            "del mese successivo, per coerenza col vincolo di ore "
-            "settimanali del motore. Ore mese: solo i giorni del mese "
-            "effettivamente selezionato (esclude situazione iniziale ed "
-            "eventuale sconfinamento nel mese successivo)."
+            "M / P / N / Totale turni / Ore M / Ore P / Ore N: solo i turni "
+            "del mese di riferimento selezionato (esclude sia la situazione "
+            "iniziale del mese precedente sia l'eventuale sconfinamento nel "
+            "mese successivo). Ore per settimana (lun-dom): includono invece "
+            "anche le ore della situazione iniziale e degli eventuali giorni "
+            "del mese successivo, per coerenza col vincolo di ore settimanali "
+            "del motore, che ragiona su settimane calendario complete. Ore "
+            "mese: stesso criterio di M/P/N, solo il mese di riferimento."
         )
 
         lavoratori_ordinati_insights = st.session_state.df_lavoratori["id"].tolist()
         nomi_per_id = dict(zip(
             st.session_state.df_lavoratori["id"], st.session_state.df_lavoratori["nome"]
         ))
-
-        conteggi_m = risultato.metriche_fairness.get("turni_M_per_lavoratore", {})
-        conteggi_p = risultato.metriche_fairness.get("turni_P_per_lavoratore", {})
-        conteggi_n = risultato.metriche_fairness.get("turni_N_per_lavoratore", {})
 
         ore_per_fascia_effettive = (
             ultimo_input.regole_contrattuali.ore_per_fascia if ultimo_input
@@ -813,9 +871,32 @@ if risultato is not None:
         p_ref = st.session_state.periodo
         anno_ref, mese_ref = int(p_ref["anno"]), int(p_ref["mese"])
 
-        # Ore per settimana ISO (lun-dom), per lavoratore: sommiamo sia le
-        # assegnazioni del periodo generato sia le ore di situazione
-        # iniziale che cadono nella stessa settimana solare.
+        # Turni (M/P/N, Totale) e ore del SOLO mese di riferimento: esclude
+        # sia la situazione iniziale (mese precedente, che comunque non
+        # rientra mai in risultato.assegnazioni) sia l'eventuale
+        # sconfinamento nel mese successivo (giorni oltre la fine del
+        # mese selezionato, che invece SONO in risultato.assegnazioni dato
+        # che il periodo elaborato si estende fino alla domenica di
+        # chiusura settimana).
+        conteggi_m = defaultdict(int)
+        conteggi_p = defaultdict(int)
+        conteggi_n = defaultdict(int)
+        conteggi_per_fascia = {"M": conteggi_m, "P": conteggi_p, "N": conteggi_n}
+        ore_mese_per_lavoratore = defaultdict(int)
+
+        for a in risultato.assegnazioni:
+            data = data_da_indice_periodo(anno_ref, mese_ref, a.giorno)
+            if data.month == mese_ref and data.year == anno_ref:
+                if a.fascia in conteggi_per_fascia:
+                    conteggi_per_fascia[a.fascia][a.lavoratore_id] += 1
+                ore_mese_per_lavoratore[a.lavoratore_id] += ore_per_fascia_effettive.get(a.fascia, 0)
+
+        # Ore per settimana ISO (lun-dom), per lavoratore: qui invece
+        # includiamo DI PROPOSITO sia le assegnazioni del periodo esteso
+        # (anche i giorni nel mese successivo) sia le ore di situazione
+        # iniziale che cadono nella stessa settimana solare, per coerenza
+        # col vincolo di ore settimanali del motore (che ragiona per
+        # l'appunto su settimane calendario complete, non sul solo mese).
         ore_settimana_per_lavoratore = defaultdict(lambda: defaultdict(int))
         settimane_incontrate = {}  # chiave iso -> (data_inizio, data_fine) per etichette ordinate
 
@@ -843,14 +924,6 @@ if risultato is not None:
             lun = datetime.date.fromisocalendar(anno_iso, settimana_iso, 1)
             dom = datetime.date.fromisocalendar(anno_iso, settimana_iso, 7)
             return f"Ore sett.{settimana_iso} ({lun.strftime('%d/%m')}-{dom.strftime('%d/%m')})"
-
-        # Ore del solo mese di riferimento (esclude situazione iniziale ed
-        # eventuale sconfinamento nel mese successivo)
-        ore_mese_per_lavoratore = defaultdict(int)
-        for a in risultato.assegnazioni:
-            data = data_da_indice_periodo(anno_ref, mese_ref, a.giorno)
-            if data.month == mese_ref and data.year == anno_ref:
-                ore_mese_per_lavoratore[a.lavoratore_id] += ore_per_fascia_effettive.get(a.fascia, 0)
 
         nome_mese_ref = MESI_IT[mese_ref]
 
