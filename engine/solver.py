@@ -31,17 +31,20 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza lo scarto (max - min) tra lavoratori sul numero di turni
      per fascia e sul numero di giorni lavorati totali; minimizza inoltre
-     lo scarto (max - min) delle ORE lavorate tra lavoratori SETTIMANA PER
-     SETTIMANA (non solo sul totale del periodo, altrimenti uno squilibrio
-     in una singola settimana potrebbe restare nascosto dietro una media
-     complessiva bilanciata), tenendo conto anche delle ore gia' maturate
-     in stato_iniziale per la settimana a cavallo col mese precedente;
-     minimizza infine lo scarto (max - min) del TASSO di surplus di
-     copertura (surplus / fabbisogno minimo, non il surplus grezzo),
-     confrontato su un'unica scala tra tutte le fasce e i giorni insieme:
-     cosi' un eventuale surplus si distribuisce in proporzione al
-     fabbisogno invece di concentrarsi su una fascia o un giorno specifico,
-     anche quando il fabbisogno non e' uguale ovunque
+     lo scarto (max - min) del TASSO DI UTILIZZO della capacita' oraria
+     residua, SETTIMANA PER SETTIMANA (non solo sul totale del periodo):
+     confrontiamo il tasso (ore nuove assegnate / capacita' residua quella
+     settimana), non le ore grezze, perche' un lavoratore che ha gia'
+     maturato ore in stato_iniziale ha una capacita' residua legittimamente
+     piu' bassa quella settimana — confrontare le ore grezze spingerebbe
+     un peso alto a "trascinare giu'" anche gli altri lavoratori pur di
+     ridurre lo scarto, l'esatto opposto dell'effetto voluto; minimizza
+     infine lo scarto (max - min) del TASSO di surplus di copertura
+     (surplus / fabbisogno minimo, non il surplus grezzo), confrontato su
+     un'unica scala tra tutte le fasce e i giorni insieme: cosi' un
+     eventuale surplus si distribuisce in proporzione al fabbisogno invece
+     di concentrarsi su una fascia o un giorno specifico, anche quando il
+     fabbisogno non e' uguale ovunque
 
 Ogni livello e' testato in tests/test_solver.py.
 """
@@ -303,35 +306,53 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
         # ore settimana per settimana, cosi' lo squilibrio non puo'
         # nascondersi dietro una media complessiva.
         #
-        # Includiamo anche le ore gia' maturate in stato_iniziale per la
-        # settimana a cavallo col mese precedente (stessa logica del
-        # vincolo hard sopra), altrimenti un lavoratore che ha gia'
-        # lavorato molto a fine mese precedente sembrerebbe "scarico"
-        # nella prima settimana solo per le nuove assegnazioni.
-        limite_ore_settimana = max(
-            (l.ore_settimanali_contratto for l in dati.lavoratori), default=0
-        )
+        # NON confrontiamo pero' le ore grezze: un lavoratore che ha gia'
+        # maturato ore in stato_iniziale nella settimana a cavallo ha una
+        # capacita' RESIDUA piu' bassa quella settimana in modo del tutto
+        # legittimo (non e' un problema di contratto, e' un vincolo fisico
+        # gia' successo). Se confrontassimo le ore grezze, un peso alto
+        # spingerebbe il motore a "trascinare giu'" anche gli altri
+        # lavoratori pur di ridurre lo scarto — esattamente l'effetto
+        # opposto a quello desiderato. Confrontiamo invece il TASSO DI
+        # UTILIZZO della capacita' residua di quella settimana (ore nuove
+        # assegnate / capacita' residua), cosi' un lavoratore gia' quasi al
+        # massimo della sua capacita' residua (es. 24 ore su 28 disponibili
+        # = 86%) risulta gia' "equo" rispetto a un altro pieno al 100% su
+        # 36, senza bisogno di penalizzare nessuno.
+        SCALE = 100
 
         for chiave_settimana, giorni_settimana in settimane.items():
-            ore_lavoratori = []
+            tassi_settimana = []
             for w in lavoratori_ids:
+                lavoratore = next(l for l in dati.lavoratori if l.id == w)
+                max_ore_w = lavoratore.ore_settimanali_contratto
                 ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
-                ore_w = model.NewIntVar(0, limite_ore_settimana, f"ore_bilanciate_{chiave_settimana}_{w}")
+                capacita_residua = max(max_ore_w - ore_gia_maturate, 0)
+
+                ore_nuove_w = model.NewIntVar(0, max_ore_w, f"ore_nuove_{chiave_settimana}_{w}")
                 model.Add(
-                    ore_w
+                    ore_nuove_w
                     == sum(ore_per_fascia.get(f, 0) * x[(w, g, f)] for g in giorni_settimana for f in fasce)
-                    + ore_gia_maturate
                 )
-                ore_lavoratori.append(ore_w)
 
-            max_ore_sett = model.NewIntVar(0, limite_ore_settimana, f"max_ore_sett_{chiave_settimana}")
-            min_ore_sett = model.NewIntVar(0, limite_ore_settimana, f"min_ore_sett_{chiave_settimana}")
-            model.AddMaxEquality(max_ore_sett, ore_lavoratori)
-            model.AddMinEquality(min_ore_sett, ore_lavoratori)
+                if capacita_residua > 0:
+                    tasso_w = model.NewIntVar(0, SCALE, f"tasso_ore_{chiave_settimana}_{w}")
+                    model.AddDivisionEquality(tasso_w, ore_nuove_w * SCALE, capacita_residua)
+                    tassi_settimana.append(tasso_w)
+                # Se capacita_residua == 0 (rarissimo: ha gia' esaurito il
+                # monte ore solo con stato_iniziale), il vincolo hard altrove
+                # gli impedisce comunque nuovi turni quella settimana; lo
+                # escludiamo dal confronto proporzionale (divisione per zero).
 
-            scarto_ore_sett = model.NewIntVar(0, limite_ore_settimana, f"scarto_ore_sett_{chiave_settimana}")
-            model.Add(scarto_ore_sett == max_ore_sett - min_ore_sett)
-            termini_obiettivo.append(peso_fairness * scarto_ore_sett)
+            if len(tassi_settimana) >= 2:
+                max_t = model.NewIntVar(0, SCALE, f"max_tasso_ore_{chiave_settimana}")
+                min_t = model.NewIntVar(0, SCALE, f"min_tasso_ore_{chiave_settimana}")
+                model.AddMaxEquality(max_t, tassi_settimana)
+                model.AddMinEquality(min_t, tassi_settimana)
+
+                scarto_tasso_ore = model.NewIntVar(0, SCALE, f"scarto_tasso_ore_{chiave_settimana}")
+                model.Add(scarto_tasso_ore == max_t - min_t)
+                termini_obiettivo.append(peso_fairness * scarto_tasso_ore)
 
     if dati.parametri_fairness.bilancia_copertura_giornaliera:
         # Il vincolo di copertura minima e' "almeno N persone", non

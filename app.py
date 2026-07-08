@@ -504,11 +504,13 @@ with tab_regole:
             help=(
                 "Bilancia il totale sull'intero periodo non basta: senza "
                 "questa opzione una singola settimana potrebbe restare "
-                "molto sbilanciata (es. qualcuno con 8 ore, qualcun altro "
-                "con 32) anche se sul periodo intero i totali si "
-                "pareggiano. Include anche le ore gia' maturate nella "
-                "situazione iniziale per la settimana a cavallo col mese "
-                "precedente."
+                "molto sbilanciata anche se sul periodo intero i totali si "
+                "pareggiano. Confronta il tasso di utilizzo della capacita' "
+                "residua (non le ore grezze): un lavoratore con ore gia' "
+                "maturate nella situazione iniziale ha legittimamente meno "
+                "ore residue quella settimana, ed e' considerato 'equo' se "
+                "sfrutta bene quella capacita' residua, senza penalizzare "
+                "gli altri lavoratori per compensare."
             ),
         )
         st.session_state.fairness["bilancia_copertura_giornaliera"] = st.checkbox(
