@@ -109,10 +109,17 @@ LEGENDA_CODICI = (
     "utile a colpo d'occhio, ma la modifica dei dati resta nella griglia sopra."
 )
 
-# Quanti giorni finali del mese precedente mostrare per la situazione
-# iniziale. 4 giorni bastano con ampio margine per i vincoli attuali
-# (riposo dopo notte, max notti consecutive di default 2).
-GIORNI_STATO_INIZIALE = 4
+# Numero MINIMO di giorni finali del mese precedente da mostrare per la
+# situazione iniziale. Il numero effettivo si adatta al giorno della
+# settimana in cui inizia il mese corrente, cosi' la situazione iniziale
+# copre sempre l'intera settimana calendario (lun-dom) su cui il mese
+# inizia — utile per le statistiche di ore settimanali lato utente. Non
+# tocca in alcun modo il motore di calcolo, che gestisce stato_iniziale
+# in modo generico indipendentemente da quanti giorni gli vengono passati.
+#   - mese che inizia lun-ven: 4 giorni (il minimo)
+#   - mese che inizia sabato: 5 giorni (per coprire lun-ven precedenti)
+#   - mese che inizia domenica: 6 giorni (per coprire lun-sab precedenti)
+GIORNI_STATO_INIZIALE_MINIMO = 4
 
 
 def _mese_precedente(anno: int, mese: int) -> tuple[int, int]:
@@ -159,11 +166,24 @@ def _etichetta_giorno(giorno: int) -> str:
 
 
 def _giorni_stato_iniziale() -> tuple[list[int], int, int]:
-    """Ritorna (lista giorni finali del mese precedente, anno_prec, mese_prec)."""
+    """Ritorna (lista giorni finali del mese precedente, anno_prec, mese_prec).
+
+    Il numero di giorni si adatta al giorno della settimana in cui inizia
+    il mese corrente, cosi' la situazione iniziale copre sempre l'intera
+    settimana calendario (lun-dom) su cui il 1 del mese cade, con un
+    minimo di GIORNI_STATO_INIZIALE_MINIMO giorni anche quando il mese
+    inizia di lunedi' (dove tecnicamente basterebbe 0)."""
     p = st.session_state.periodo
     anno_prec, mese_prec = _mese_precedente(int(p["anno"]), int(p["mese"]))
     giorni_nel_mese_prec = calendar.monthrange(anno_prec, mese_prec)[1]
-    n = min(GIORNI_STATO_INIZIALE, giorni_nel_mese_prec)
+
+    primo_giorno_mese = datetime.date(int(p["anno"]), int(p["mese"]), 1)
+    # isoweekday: lunedi'=1 ... domenica=7. Giorni della settimana ISO
+    # precedenti al 1 del mese = isoweekday - 1 (0 se il mese inizia di
+    # lunedi'). Usiamo comunque il minimo se questo valore e' piu' basso.
+    giorni_necessari = max(GIORNI_STATO_INIZIALE_MINIMO, primo_giorno_mese.isoweekday() - 1)
+
+    n = min(giorni_necessari, giorni_nel_mese_prec)
     giorni = list(range(giorni_nel_mese_prec - n + 1, giorni_nel_mese_prec + 1))
     return giorni, anno_prec, mese_prec
 
@@ -386,18 +406,9 @@ _init_state()
 # Layout
 # ---------------------------------------------------------------------------
 
-with st.sidebar:
-    st.subheader("Dati di esempio")
-    st.caption(
-        "Se aggiorni il codice (es. nuovo dataset di default), Streamlit "
-        "ricarica lo script ma NON azzera i dati gia' caricati in questa "
-        "sessione. Usa questo pulsante per ripartire dai dati di esempio "
-        "aggiornati senza dover riavviare il server."
-    )
-    if st.button("Ricarica dati di esempio", type="secondary"):
-        for chiave in list(st.session_state.keys()):
-            del st.session_state[chiave]
-        st.rerun()
+# ---------------------------------------------------------------------------
+# Layout
+# ---------------------------------------------------------------------------
 
 st.title("Turnazione reparto")
 

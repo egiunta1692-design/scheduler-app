@@ -50,13 +50,19 @@ griglie e tabelle, mostra anche il giorno della settimana**
      mese precedente — turni gia' effettuati, concettualmente trattati
      come "assegnazioni chiuse" (stesso principio di un vincolo admin,
      solo che e' gia' un fatto avvenuto anziche' un'imposizione per il
-     futuro). Le colonne successive sono il periodo da pianificare, con
-     un codice breve per cella (es. `F3` = richiesta ferie priorita'
-     alta, `AM` = turno Mattino forzato dal coordinatore); le ultime
-     colonne (icona ➡️), se presenti, sono gia' nel mese successivo.
-     Legenda disponibile nell'espansione "Legenda codici". **Una cella
-     contiene un solo codice**: richiesta soft del lavoratore e vincolo
-     admin del coordinatore sono quindi mutuamente esclusivi per
+     futuro). Il numero di giorni mostrati e' minimo 4, ma si allarga
+     automaticamente per coprire l'intera settimana calendario (lun-dom)
+     su cui il mese inizia: 4 giorni se il mese inizia lun-ven, 5 se
+     inizia sabato, 6 se inizia domenica — utile per le statistiche di
+     ore settimanali lato utente (il motore di calcolo non e' toccato da
+     questo, gestisce `stato_iniziale` in modo generico indipendentemente
+     dal numero di giorni). Le colonne successive sono il periodo da
+     pianificare, con un codice breve per cella (es. `F3` = richiesta
+     ferie priorita' alta, `AM` = turno Mattino forzato dal coordinatore);
+     le ultime colonne (icona ➡️), se presenti, sono gia' nel mese
+     successivo. Legenda disponibile nell'espansione "Legenda codici".
+     **Una cella contiene un solo codice**: richiesta soft del lavoratore
+     e vincolo admin del coordinatore sono quindi mutuamente esclusivi per
      costruzione, non serve validarlo a parte. Nota tecnica: Streamlit
      non supporta la colorazione di sfondo nelle griglie editabili
      (sono renderizzate su canvas), quindi le tre zone si distinguono
