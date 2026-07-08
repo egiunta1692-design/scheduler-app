@@ -496,3 +496,41 @@ def test_ore_settimanali_specifiche_per_lavoratore():
 
     assegnazioni_w2 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w2" and a.fascia == "M"]
     assert len(assegnazioni_w2) == 1, "w2 doveva coprire il fabbisogno al posto di w1"
+
+
+# ---------------------------------------------------------------------------
+# Fairness: ore settimanali bilanciate tra lavoratori, settimana per settimana
+# ---------------------------------------------------------------------------
+
+def test_fairness_bilancia_ore_per_settimana():
+    """Verifica che le ore lavorate tra i lavoratori restino bilanciate
+    settimana per settimana (non solo in media sul periodo intero):
+    prima di questa modifica era possibile che una singola settimana
+    fosse molto sbilanciata (es. qualcuno con 8 ore, qualcun altro con
+    32) pur avendo un totale di periodo equilibrato."""
+    dati = get_sample_input()
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    ore_per_fascia = dati.regole_contrattuali.ore_per_fascia
+    ore_per_settimana_lavoratore = defaultdict(lambda: defaultdict(int))
+
+    for a in risultato.assegnazioni:
+        data = data_da_indice_periodo(dati.periodo.anno, dati.periodo.mese, a.giorno)
+        chiave = data.isocalendar()[:2]
+        ore_per_settimana_lavoratore[chiave][a.lavoratore_id] += ore_per_fascia.get(a.fascia, 0)
+
+    lavoratori_ids = [l.id for l in dati.lavoratori]
+
+    for chiave, ore_per_lavoratore in ore_per_settimana_lavoratore.items():
+        ore_complete = [ore_per_lavoratore.get(w, 0) for w in lavoratori_ids]
+        scarto = max(ore_complete) - min(ore_complete)
+
+        # Soglia larga apposta (controllo di sanita', non vincolo esatto):
+        # con 20 lavoratori e fabbisogno modesto (3M+3P+2N/giorno), uno
+        # scarto enorme (es. 0 vs 32 ore) nella stessa settimana
+        # indicherebbe che il bilanciamento settimanale non sta
+        # funzionando.
+        assert scarto <= 16, (
+            f"Scarto ore troppo alto nella settimana {chiave}: {ore_complete}"
+        )

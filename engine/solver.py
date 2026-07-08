@@ -31,12 +31,17 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza lo scarto (max - min) tra lavoratori sul numero di turni
      per fascia e sul numero di giorni lavorati totali; minimizza inoltre
-     lo scarto (max - min) del TASSO di surplus di copertura (surplus /
-     fabbisogno minimo, non il surplus grezzo), confrontato su un'unica
-     scala tra tutte le fasce e i giorni insieme: cosi' un eventuale
-     surplus si distribuisce in proporzione al fabbisogno invece di
-     concentrarsi su una fascia o un giorno specifico, anche quando il
-     fabbisogno non e' uguale ovunque
+     lo scarto (max - min) delle ORE lavorate tra lavoratori SETTIMANA PER
+     SETTIMANA (non solo sul totale del periodo, altrimenti uno squilibrio
+     in una singola settimana potrebbe restare nascosto dietro una media
+     complessiva bilanciata), tenendo conto anche delle ore gia' maturate
+     in stato_iniziale per la settimana a cavallo col mese precedente;
+     minimizza infine lo scarto (max - min) del TASSO di surplus di
+     copertura (surplus / fabbisogno minimo, non il surplus grezzo),
+     confrontato su un'unica scala tra tutte le fasce e i giorni insieme:
+     cosi' un eventuale surplus si distribuisce in proporzione al
+     fabbisogno invece di concentrarsi su una fascia o un giorno specifico,
+     anche quando il fabbisogno non e' uguale ovunque
 
 Ogni livello e' testato in tests/test_solver.py.
 """
@@ -289,6 +294,44 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
         scarto_giorni = model.NewIntVar(0, n_giorni, "scarto_giorni")
         model.Add(scarto_giorni == max_g - min_g)
         termini_obiettivo.append(peso_fairness * scarto_giorni)
+
+    if dati.parametri_fairness.bilancia_ore_settimanali:
+        # bilancia_giorni_settimana bilancia il TOTALE sull'intero periodo:
+        # non impedisce che una singola settimana sia molto sbilanciata tra
+        # le persone (es. qualcuno con 8 ore, qualcun altro con 32) anche
+        # se sul periodo intero i totali si pareggiano. Qui bilanciamo le
+        # ore settimana per settimana, cosi' lo squilibrio non puo'
+        # nascondersi dietro una media complessiva.
+        #
+        # Includiamo anche le ore gia' maturate in stato_iniziale per la
+        # settimana a cavallo col mese precedente (stessa logica del
+        # vincolo hard sopra), altrimenti un lavoratore che ha gia'
+        # lavorato molto a fine mese precedente sembrerebbe "scarico"
+        # nella prima settimana solo per le nuove assegnazioni.
+        limite_ore_settimana = max(
+            (l.ore_settimanali_contratto for l in dati.lavoratori), default=0
+        )
+
+        for chiave_settimana, giorni_settimana in settimane.items():
+            ore_lavoratori = []
+            for w in lavoratori_ids:
+                ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
+                ore_w = model.NewIntVar(0, limite_ore_settimana, f"ore_bilanciate_{chiave_settimana}_{w}")
+                model.Add(
+                    ore_w
+                    == sum(ore_per_fascia.get(f, 0) * x[(w, g, f)] for g in giorni_settimana for f in fasce)
+                    + ore_gia_maturate
+                )
+                ore_lavoratori.append(ore_w)
+
+            max_ore_sett = model.NewIntVar(0, limite_ore_settimana, f"max_ore_sett_{chiave_settimana}")
+            min_ore_sett = model.NewIntVar(0, limite_ore_settimana, f"min_ore_sett_{chiave_settimana}")
+            model.AddMaxEquality(max_ore_sett, ore_lavoratori)
+            model.AddMinEquality(min_ore_sett, ore_lavoratori)
+
+            scarto_ore_sett = model.NewIntVar(0, limite_ore_settimana, f"scarto_ore_sett_{chiave_settimana}")
+            model.Add(scarto_ore_sett == max_ore_sett - min_ore_sett)
+            termini_obiettivo.append(peso_fairness * scarto_ore_sett)
 
     if dati.parametri_fairness.bilancia_copertura_giornaliera:
         # Il vincolo di copertura minima e' "almeno N persone", non

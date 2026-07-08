@@ -310,6 +310,7 @@ def _init_state():
     st.session_state.fairness = {
         "bilancia_fasce": demo.parametri_fairness.bilancia_fasce,
         "bilancia_giorni_settimana": demo.parametri_fairness.bilancia_giorni_settimana,
+        "bilancia_ore_settimanali": demo.parametri_fairness.bilancia_ore_settimanali,
         "bilancia_copertura_giornaliera": demo.parametri_fairness.bilancia_copertura_giornaliera,
         "peso_fairness": demo.parametri_fairness.peso_fairness,
     }
@@ -521,6 +522,19 @@ with tab_regole:
             "Bilancia il totale di giorni lavorati tra i lavoratori",
             value=st.session_state.fairness["bilancia_giorni_settimana"],
         )
+        st.session_state.fairness["bilancia_ore_settimanali"] = st.checkbox(
+            "Bilancia le ore lavorate tra i lavoratori, settimana per settimana",
+            value=st.session_state.fairness["bilancia_ore_settimanali"],
+            help=(
+                "Bilancia il totale sull'intero periodo non basta: senza "
+                "questa opzione una singola settimana potrebbe restare "
+                "molto sbilanciata (es. qualcuno con 8 ore, qualcun altro "
+                "con 32) anche se sul periodo intero i totali si "
+                "pareggiano. Include anche le ore gia' maturate nella "
+                "situazione iniziale per la settimana a cavallo col mese "
+                "precedente."
+            ),
+        )
         st.session_state.fairness["bilancia_copertura_giornaliera"] = st.checkbox(
             "Spalma il surplus di copertura il piu' possibile tra i giorni",
             value=st.session_state.fairness["bilancia_copertura_giornaliera"],
@@ -633,6 +647,7 @@ def _costruisci_input() -> InputTurnazione:
     fairness = ParametriFairness(
         bilancia_fasce=st.session_state.fairness["bilancia_fasce"],
         bilancia_giorni_settimana=st.session_state.fairness["bilancia_giorni_settimana"],
+        bilancia_ore_settimanali=st.session_state.fairness["bilancia_ore_settimanali"],
         bilancia_copertura_giornaliera=st.session_state.fairness["bilancia_copertura_giornaliera"],
         peso_fairness=int(st.session_state.fairness["peso_fairness"]),
     )

@@ -103,6 +103,13 @@ Premi "Genera turni" per vedere:
 **Livello 4 - fairness (soft, priorita' piu' bassa):**
 - minimizza lo scarto (max - min) tra lavoratori sul numero di turni per
   fascia e sul totale di giorni lavorati
+- minimizza inoltre lo scarto (max - min) delle **ore lavorate tra
+  lavoratori, settimana per settimana** (non solo sul totale del
+  periodo): bilanciare solo il totale non basta, una singola settimana
+  potrebbe restare molto sbilanciata (es. qualcuno con 8 ore, qualcun
+  altro con 32) pur avendo un totale di periodo equilibrato. Include
+  anche le ore gia' maturate in `stato_iniziale` per la settimana a
+  cavallo col mese precedente
 - minimizza inoltre lo scarto (max - min) del **tasso di surplus di
   copertura** (surplus / fabbisogno minimo, non il surplus grezzo),
   confrontato su un'unica scala tra **tutte le fasce e i giorni insieme**:
