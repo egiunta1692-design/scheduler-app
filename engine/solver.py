@@ -7,8 +7,11 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      - un lavoratore fa al massimo una fascia al giorno
      - copertura minima per giorno/fascia (fabbisogno)
      - riposo obbligatorio dopo un turno notturno
-     - massimo notti consecutive
-     - massimo ore settimanali da contratto
+     - vincolo personale "mai notti" (lavoratore.vincoli_personali.mai_notti)
+     - massimo notti consecutive (con override personale possibile)
+     - massimo ore settimanali da contratto, sempre per singolo lavoratore
+       (lavoratore.ore_settimanali_contratto, nessun fallback su un default
+       globale)
        (tutti tengono conto di stato_iniziale per i casi a cavallo di mese,
        incluse le ore gia' maturate nella stessa settimana ISO se la
        settimana e' a cavallo con il mese precedente)
@@ -123,6 +126,16 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
                     if f in fasce and si.lavoratore_id in lavoratori_ids:
                         model.Add(x[(si.lavoratore_id, dati.periodo.giorno_inizio, f)] == 0)
 
+    # Vincolo personale "mai notti": alcuni lavoratori (es. per motivi di
+    # salute) non possono mai fare il turno N. Questo campo esisteva gia'
+    # nel modello dati e nella UI ma non era ancora applicato dal motore.
+    if "N" in fasce:
+        for w in lavoratori_ids:
+            lavoratore = next(l for l in dati.lavoratori if l.id == w)
+            if lavoratore.vincoli_personali.mai_notti:
+                for g in giorni:
+                    model.Add(x[(w, g, "N")] == 0)
+
     # Massimo notti consecutive
     if "N" in fasce:
         max_consec = dati.regole_contrattuali.max_notti_consecutive
@@ -180,7 +193,12 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
 
     for w in lavoratori_ids:
         lavoratore = next(l for l in dati.lavoratori if l.id == w)
-        max_ore = lavoratore.ore_settimanali_contratto or dati.regole_contrattuali.max_ore_settimanali
+        # Nota: niente fallback su un default globale qui. Il campo e'
+        # obbligatorio e specifico per lavoratore; un "or" con un default
+        # globale tratterebbe erroneamente 0 (es. lavoratore con contratto
+        # sospeso quel mese) come "non impostato", sostituendolo col
+        # default 36h in modo silenzioso e sbagliato.
+        max_ore = lavoratore.ore_settimanali_contratto
 
         for chiave_settimana, giorni_settimana in settimane.items():
             ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)

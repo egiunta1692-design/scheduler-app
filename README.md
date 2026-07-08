@@ -23,9 +23,12 @@ pytest tests/ -v
 streamlit run app.py
 ```
 
-Si apre il browser in automatico. Tre schede:
+Si apre il browser in automatico. Tre schede. **Ogni intestazione giorno,
+in tutte le griglie e tabelle, mostra anche il giorno della settimana**
+(lun/mar/mer/gio/ven/sab/dom) accanto alla data.
 
-- **Lavoratori** — tabella editabile (id, nome, ore contratto)
+- **Lavoratori** — tabella editabile: id, nome, ore contratto (specifiche
+  per singolo lavoratore, nessun default globale nascosto), "mai notti"
 - **Calendario** — due griglie:
   1. **Fabbisogno**: righe M/P/N, valori numerici per giorno del periodo
   2. **Situazione iniziale + Richieste/Vincoli**: griglia unica, righe =
@@ -52,8 +55,15 @@ Si apre il browser in automatico. Tre schede:
   finisce venerdi' 31, il periodo si estende fino a domenica 2 del
   mese successivo), ore per fascia, notti consecutive, pesi fairness
 
-Premi "Genera turni" per vedere lo schema colorato, le richieste non
-soddisfatte e l'equilibrio del carico tra lavoratori.
+Premi "Genera turni" per vedere:
+- lo schema turni colorato
+- la copertura effettiva vs fabbisogno (giorni in colonna, M/P/N in riga)
+- **Turni per lavoratore**: turni e ore per fascia (M/P/N), ore totali per
+  ciascuna settimana lun-dom del periodo (comprese le ore di situazione
+  iniziale e degli eventuali giorni nel mese successivo, per coerenza col
+  vincolo di ore settimanali del motore) e ore totali del solo mese di
+  riferimento selezionato
+- le richieste non soddisfatte e l'equilibrio del carico tra lavoratori
 
 ## Cosa fa il motore adesso (completo sui vincoli principali)
 
@@ -62,13 +72,17 @@ soddisfatte e l'equilibrio del carico tra lavoratori.
 - copertura minima di personale per giorno/fascia (fabbisogno)
 - riposo obbligatorio dopo un turno notturno (no M/P il giorno dopo N,
   fasce configurabili via `regole_contrattuali.vietato_dopo_notte`)
+- vincolo personale "mai notti" (`lavoratore.vincoli_personali.mai_notti`)
 - massimo notti consecutive (default 2, override possibile per singolo
   lavoratore)
-- massimo ore settimanali da contratto (settimane calendario lun-dom,
-  ore per fascia configurabili, default 8h per M/P/N). Se la prima
-  settimana del periodo e' a cavallo con l'ultima settimana del mese
-  precedente, le ore gia' maturate in `stato_iniziale` in quella
-  settimana vengono sommate al conteggio
+- massimo ore settimanali da contratto, **sempre specifico per singolo
+  lavoratore** (`lavoratore.ore_settimanali_contratto`, nessun fallback
+  su un default globale — un valore 0 viene rispettato letteralmente,
+  non sostituito silenziosamente) (settimane calendario lun-dom, ore per
+  fascia configurabili, default 8h per M/P/N). Se la prima settimana del
+  periodo e' a cavallo con l'ultima settimana del mese precedente, le ore
+  gia' maturate in `stato_iniziale` in quella settimana vengono sommate
+  al conteggio
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a
   cavallo con il mese precedente
 

@@ -21,6 +21,7 @@ Avvio: streamlit run app.py
 """
 
 import calendar
+import datetime
 from collections import defaultdict
 
 import streamlit as st
@@ -137,13 +138,24 @@ def _aggiorna_periodo_da_mese():
     p["giorno_fine"] = calcola_giorno_fine_periodo(int(p["anno"]), int(p["mese"]))
 
 
+GIORNI_SETTIMANA_IT = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"]  # indice 0 = lunedi'
+MESI_IT = [
+    "", "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+    "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
+]
+
+
+def _nome_giorno_settimana(data) -> str:
+    return GIORNI_SETTIMANA_IT[data.weekday()]
+
+
 def _etichetta_giorno(giorno: int) -> str:
-    """Etichetta leggibile per una colonna giorno: mostra la data reale,
-    utile soprattutto per i giorni che sconfinano nel mese successivo
-    (es. '32 (01/08)')."""
+    """Etichetta leggibile per una colonna giorno: mostra il giorno della
+    settimana e la data reale, utile soprattutto per i giorni che
+    sconfinano nel mese successivo (es. '32 - ven 01/08')."""
     p = st.session_state.periodo
     data = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), giorno)
-    return f"{giorno} ({data.strftime('%d/%m')})"
+    return f"{giorno} - {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
 
 
 def _giorni_stato_iniziale() -> tuple[list[int], int, int]:
@@ -176,20 +188,21 @@ def _tutte_le_colonne() -> list[str]:
 
 
 def _etichetta_colonna(col: str) -> str:
-    """Etichetta con icona per distinguere a colpo d'occhio le tre zone
-    della griglia (Streamlit non supporta colori di sfondo nelle griglie
-    editabili, quindi usiamo icone nelle intestazioni)."""
+    """Etichetta con giorno della settimana e icona per distinguere a
+    colpo d'occhio le tre zone della griglia (Streamlit non supporta
+    colori di sfondo nelle griglie editabili, quindi usiamo icone nelle
+    intestazioni)."""
     p = st.session_state.periodo
     if col.startswith(PREFISSO_PASSATO):
         giorno = int(col[len(PREFISSO_PASSATO):])
         data = data_da_indice_mese_precedente(int(p["anno"]), int(p["mese"]), giorno)
-        return f"🕓 {data.strftime('%d/%m')}"
+        return f"🕓 {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
 
     giorno = int(col)
     data = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), giorno)
     if data.month != int(p["mese"]) or data.year != int(p["anno"]):
-        return f"➡️ {giorno} ({data.strftime('%d/%m')})"
-    return f"{giorno} ({data.strftime('%d/%m')})"
+        return f"➡️ {giorno} - {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
+    return f"{giorno} - {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
 
 
 def _codice_da_richiesta(tipo: str, fascia, priorita: int) -> str:
@@ -758,8 +771,17 @@ if risultato is not None:
             styler_copertura = df_copertura.style.applymap(_colora_scarto, subset=(righe_scarto, slice(None)))
         st.dataframe(styler_copertura, use_container_width=True)
 
-        # Insights: numero di turni per fascia e totale, per lavoratore
+        # Insights: turni e ore per lavoratore, per fascia / settimana / mese
         st.subheader("Turni per lavoratore")
+        st.caption(
+            "Ore per settimana (lun-dom): includono anche le ore della "
+            "situazione iniziale (mese precedente) e degli eventuali giorni "
+            "del mese successivo, per coerenza col vincolo di ore "
+            "settimanali del motore. Ore mese: solo i giorni del mese "
+            "effettivamente selezionato (esclude situazione iniziale ed "
+            "eventuale sconfinamento nel mese successivo)."
+        )
+
         lavoratori_ordinati_insights = st.session_state.df_lavoratori["id"].tolist()
         nomi_per_id = dict(zip(
             st.session_state.df_lavoratori["id"], st.session_state.df_lavoratori["nome"]
@@ -769,19 +791,70 @@ if risultato is not None:
         conteggi_p = risultato.metriche_fairness.get("turni_P_per_lavoratore", {})
         conteggi_n = risultato.metriche_fairness.get("turni_N_per_lavoratore", {})
 
+        ore_per_fascia_effettive = (
+            ultimo_input.regole_contrattuali.ore_per_fascia if ultimo_input
+            else {"M": 8, "P": 8, "N": 8}
+        )
+        p_ref = st.session_state.periodo
+        anno_ref, mese_ref = int(p_ref["anno"]), int(p_ref["mese"])
+
+        # Ore per settimana ISO (lun-dom), per lavoratore: sommiamo sia le
+        # assegnazioni del periodo generato sia le ore di situazione
+        # iniziale che cadono nella stessa settimana solare.
+        ore_settimana_per_lavoratore = defaultdict(lambda: defaultdict(int))
+        settimane_incontrate = {}  # chiave iso -> (data_inizio, data_fine) per etichette ordinate
+
+        if ultimo_input:
+            for a in risultato.assegnazioni:
+                data = data_da_indice_periodo(anno_ref, mese_ref, a.giorno)
+                chiave = data.isocalendar()[:2]
+                ore = ore_per_fascia_effettive.get(a.fascia, 0)
+                ore_settimana_per_lavoratore[a.lavoratore_id][chiave] += ore
+                settimane_incontrate.setdefault(chiave, chiave)
+
+            for si in ultimo_input.stato_iniziale:
+                if not si.mese_precedente:
+                    continue
+                data = data_da_indice_mese_precedente(anno_ref, mese_ref, si.giorno)
+                chiave = data.isocalendar()[:2]
+                ore = ore_per_fascia_effettive.get(si.fascia, 0)
+                ore_settimana_per_lavoratore[si.lavoratore_id][chiave] += ore
+                settimane_incontrate.setdefault(chiave, chiave)
+
+        settimane_ordinate = sorted(settimane_incontrate.keys())
+
+        def _etichetta_settimana(chiave):
+            anno_iso, settimana_iso = chiave
+            lun = datetime.date.fromisocalendar(anno_iso, settimana_iso, 1)
+            dom = datetime.date.fromisocalendar(anno_iso, settimana_iso, 7)
+            return f"Ore sett.{settimana_iso} ({lun.strftime('%d/%m')}-{dom.strftime('%d/%m')})"
+
+        # Ore del solo mese di riferimento (esclude situazione iniziale ed
+        # eventuale sconfinamento nel mese successivo)
+        ore_mese_per_lavoratore = defaultdict(int)
+        for a in risultato.assegnazioni:
+            data = data_da_indice_periodo(anno_ref, mese_ref, a.giorno)
+            if data.month == mese_ref and data.year == anno_ref:
+                ore_mese_per_lavoratore[a.lavoratore_id] += ore_per_fascia_effettive.get(a.fascia, 0)
+
+        nome_mese_ref = MESI_IT[mese_ref]
+
         righe_insights = []
         for w in lavoratori_ordinati_insights:
-            m = conteggi_m.get(w, 0)
-            p = conteggi_p.get(w, 0)
-            n = conteggi_n.get(w, 0)
-            righe_insights.append({
+            m, p, n = conteggi_m.get(w, 0), conteggi_p.get(w, 0), conteggi_n.get(w, 0)
+            riga = {
                 "lavoratore_id": w,
                 "nome": nomi_per_id.get(w, ""),
-                "M": m,
-                "P": p,
-                "N": n,
+                "M": m, "P": p, "N": n,
                 "Totale turni": m + p + n,
-            })
+                "Ore M": m * ore_per_fascia_effettive.get("M", 0),
+                "Ore P": p * ore_per_fascia_effettive.get("P", 0),
+                "Ore N": n * ore_per_fascia_effettive.get("N", 0),
+            }
+            for chiave in settimane_ordinate:
+                riga[_etichetta_settimana(chiave)] = ore_settimana_per_lavoratore[w].get(chiave, 0)
+            riga[f"Ore mese ({nome_mese_ref})"] = ore_mese_per_lavoratore.get(w, 0)
+            righe_insights.append(riga)
 
         df_insights = pd.DataFrame(righe_insights).set_index("lavoratore_id")
         st.dataframe(df_insights, use_container_width=True)

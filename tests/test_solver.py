@@ -12,6 +12,7 @@ from engine.models import (
     InputTurnazione,
     Periodo,
     Lavoratore,
+    VincoliPersonali,
     Fabbisogno,
     StatoIniziale,
     RegoleContrattuali,
@@ -428,3 +429,70 @@ def test_motore_gestisce_periodo_esteso_nel_mese_successivo():
     copertura_giorno_33 = [a for a in risultato.assegnazioni if a.giorno == 33]
     assert len(copertura_giorno_32) >= 3  # almeno 1M+1P+1N
     assert len(copertura_giorno_33) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Vincoli personali per-lavoratore: mai_notti e ore_settimanali_contratto
+# ---------------------------------------------------------------------------
+
+def test_mai_notti_rispettato():
+    """w1 ha vincoli_personali.mai_notti=True: non deve MAI comparire con
+    fascia N nell'output, nemmeno se questo costringe gli altri lavoratori
+    a coprire tutte le notti."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_mai_notti",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=7),
+        lavoratori=[
+            Lavoratore(
+                id="w1", nome="Mai Notti", ore_settimanali_contratto=36,
+                vincoli_personali=VincoliPersonali(mai_notti=True),
+            ),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
+            Lavoratore(id="w3", nome="Test Tre", ore_settimanali_contratto=36),
+            Lavoratore(id="w4", nome="Test Quattro", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=g, fascia=f, minimo=1)
+            for g in range(1, 8) for f in ("M", "P", "N")
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    notti_w1 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.fascia == "N"]
+    assert notti_w1 == [], "w1 ha mai_notti=True ma gli sono state assegnate notti"
+
+
+def test_ore_settimanali_specifiche_per_lavoratore():
+    """Due lavoratori con ore_settimanali_contratto diverse (0 e 36) sullo
+    stesso giorno: quello con 0 ore non deve MAI lavorare (verifica che il
+    parametro sia rispettato per singolo lavoratore, senza fallback
+    silenzioso su un default globale quando il valore e' 0)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_ore_zero",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=1),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Contratto Zero", ore_settimanali_contratto=0),
+            Lavoratore(id="w2", nome="Contratto Normale", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible"
+
+    assegnazioni_w1 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w1"]
+    assert assegnazioni_w1 == [], (
+        "w1 ha ore_settimanali_contratto=0 ma gli e' stato assegnato un turno: "
+        "probabile fallback errato sul default globale"
+    )
+
+    assegnazioni_w2 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w2" and a.fascia == "M"]
+    assert len(assegnazioni_w2) == 1, "w2 doveva coprire il fabbisogno al posto di w1"
