@@ -21,6 +21,7 @@ Avvio: streamlit run app.py
 """
 
 import calendar
+from collections import defaultdict
 
 import streamlit as st
 import pandas as pd
@@ -101,7 +102,10 @@ LEGENDA_CODICI = (
     "- 🕓 = giorni del **mese precedente** (situazione iniziale, sola lettura concettuale: "
     "turni gia' avvenuti)\n"
     "- nessuna icona = giorni del **mese selezionato**\n"
-    "- ➡️ = giorni del **mese successivo** (periodo esteso fino alla domenica di chiusura)"
+    "- ➡️ = giorni del **mese successivo** (periodo esteso fino alla domenica di chiusura)\n\n"
+    "Sotto la griglia trovi anche un'**anteprima colorata di sola lettura** "
+    "(espandi \"Anteprima colorata\") con veri colori di sfondo per zona — "
+    "utile a colpo d'occhio, ma la modifica dei dati resta nella griglia sopra."
 )
 
 # Quanti giorni finali del mese precedente mostrare per la situazione
@@ -412,6 +416,42 @@ with tab_calendario:
         },
     )
 
+    # Streamlit non supporta la colorazione di sfondo nelle colonne
+    # EDITABILI di data_editor (limite noto della libreria, confermato
+    # anche in issue aperte sul loro repository). Come compromesso,
+    # mostriamo qui sotto un'anteprima di SOLA LETTURA della stessa
+    # griglia, colorata per zona: la modifica dei dati avviene sempre
+    # nella tabella sopra.
+    with st.expander("Anteprima colorata (sola lettura)", expanded=False):
+        st.caption(
+            "Solo per visualizzazione: per modificare i dati usa la griglia sopra. "
+            "🔵 = mese precedente (situazione iniziale) · bianco = mese selezionato · "
+            "🟠 = mese successivo."
+        )
+
+        etichette = {col: _etichetta_colonna(col) for col in st.session_state.df_calendario.columns}
+        df_anteprima = st.session_state.df_calendario.rename(columns=etichette)
+
+        colonne_passato_lbl = [etichette[c] for c in _colonne_passato()]
+        p_corrente = st.session_state.periodo
+        colonne_estese_lbl = []
+        for c in _colonne_periodo():
+            data_c = data_da_indice_periodo(int(p_corrente["anno"]), int(p_corrente["mese"]), int(c))
+            if data_c.month != int(p_corrente["mese"]) or data_c.year != int(p_corrente["anno"]):
+                colonne_estese_lbl.append(etichette[c])
+
+        styler_anteprima = df_anteprima.style
+        if colonne_passato_lbl:
+            styler_anteprima = styler_anteprima.set_properties(
+                subset=colonne_passato_lbl, **{"background-color": "#D6EAF8"}
+            )
+        if colonne_estese_lbl:
+            styler_anteprima = styler_anteprima.set_properties(
+                subset=colonne_estese_lbl, **{"background-color": "#FDEBD0"}
+            )
+
+        st.dataframe(styler_anteprima, use_container_width=True)
+
 with tab_regole:
     col1, col2 = st.columns(2)
 
@@ -654,6 +694,49 @@ if risultato is not None:
         except AttributeError:
             griglia_stilizzata = griglia_display.style.applymap(_colora)
         st.dataframe(griglia_stilizzata, use_container_width=True)
+
+        # Copertura effettiva vs fabbisogno, per giorno e fascia: utile per
+        # capire quanto la soluzione si discosta dal minimo richiesto (il
+        # motore garantisce sempre >= fabbisogno, ma puo' assegnare surplus
+        # in alcuni giorni per soddisfare altri vincoli/obiettivi)
+        st.subheader("Copertura effettiva vs fabbisogno")
+        st.caption(
+            "Per ogni giorno e fascia: turni effettivamente assegnati, "
+            "fabbisogno minimo richiesto, e differenza (surplus positivo "
+            "se il motore ha assegnato piu' persone del minimo)."
+        )
+
+        conteggio_effettivo = defaultdict(int)
+        for a in risultato.assegnazioni:
+            conteggio_effettivo[(a.giorno, a.fascia)] += 1
+
+        righe_copertura = []
+        for g in giorni_periodo:
+            riga = {"giorno": _etichetta_giorno(g)}
+            for f in ("M", "P", "N"):
+                effettivo = conteggio_effettivo.get((g, f), 0)
+                richiesto = 0
+                col_fab = str(g)
+                if col_fab in st.session_state.df_fabbisogno_cal.columns:
+                    richiesto = int(st.session_state.df_fabbisogno_cal.loc[f, col_fab] or 0)
+                riga[f"{f} effettivo"] = effettivo
+                riga[f"{f} richiesto"] = richiesto
+                riga[f"{f} scarto"] = effettivo - richiesto
+            righe_copertura.append(riga)
+
+        df_copertura = pd.DataFrame(righe_copertura).set_index("giorno")
+
+        def _colora_scarto(val):
+            if isinstance(val, (int, float)) and val > 0:
+                return "color: #B8860B"  # surplus rispetto al minimo
+            return ""
+
+        colonne_scarto = [c for c in df_copertura.columns if c.endswith("scarto")]
+        try:
+            styler_copertura = df_copertura.style.map(_colora_scarto, subset=colonne_scarto)
+        except AttributeError:
+            styler_copertura = df_copertura.style.applymap(_colora_scarto, subset=colonne_scarto)
+        st.dataframe(styler_copertura, use_container_width=True)
 
         # Insights: numero di turni per fascia e totale, per lavoratore
         st.subheader("Turni per lavoratore")
