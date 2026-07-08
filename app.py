@@ -701,41 +701,49 @@ if risultato is not None:
         # in alcuni giorni per soddisfare altri vincoli/obiettivi)
         st.subheader("Copertura effettiva vs fabbisogno")
         st.caption(
-            "Per ogni giorno e fascia: turni effettivamente assegnati, "
-            "fabbisogno minimo richiesto, e differenza (surplus positivo "
-            "se il motore ha assegnato piu' persone del minimo)."
+            "Per ogni fascia (riga) e giorno (colonna): turni effettivamente "
+            "assegnati, fabbisogno minimo richiesto, e differenza (surplus "
+            "positivo se il motore ha assegnato piu' persone del minimo)."
         )
 
         conteggio_effettivo = defaultdict(int)
         for a in risultato.assegnazioni:
             conteggio_effettivo[(a.giorno, a.fascia)] += 1
 
-        righe_copertura = []
-        for g in giorni_periodo:
-            riga = {"giorno": _etichetta_giorno(g)}
-            for f in ("M", "P", "N"):
+        righe_copertura = {}
+        for f in ("M", "P", "N"):
+            riga_effettivo = {}
+            riga_richiesto = {}
+            riga_scarto = {}
+            for g in giorni_periodo:
+                etichetta_col = _etichetta_giorno(g)
                 effettivo = conteggio_effettivo.get((g, f), 0)
                 richiesto = 0
                 col_fab = str(g)
                 if col_fab in st.session_state.df_fabbisogno_cal.columns:
                     richiesto = int(st.session_state.df_fabbisogno_cal.loc[f, col_fab] or 0)
-                riga[f"{f} effettivo"] = effettivo
-                riga[f"{f} richiesto"] = richiesto
-                riga[f"{f} scarto"] = effettivo - richiesto
-            righe_copertura.append(riga)
+                riga_effettivo[etichetta_col] = effettivo
+                riga_richiesto[etichetta_col] = richiesto
+                riga_scarto[etichetta_col] = effettivo - richiesto
+            righe_copertura[f"{f} effettivo"] = riga_effettivo
+            righe_copertura[f"{f} richiesto"] = riga_richiesto
+            righe_copertura[f"{f} scarto"] = riga_scarto
 
-        df_copertura = pd.DataFrame(righe_copertura).set_index("giorno")
+        df_copertura = pd.DataFrame(righe_copertura).T
+        # Riordina le colonne (giorni) in ordine cronologico invece che
+        # alfabetico, dato che pd.DataFrame(dict).T puo' riordinarle
+        df_copertura = df_copertura[[_etichetta_giorno(g) for g in giorni_periodo]]
 
         def _colora_scarto(val):
             if isinstance(val, (int, float)) and val > 0:
                 return "color: #B8860B"  # surplus rispetto al minimo
             return ""
 
-        colonne_scarto = [c for c in df_copertura.columns if c.endswith("scarto")]
+        righe_scarto = [r for r in df_copertura.index if r.endswith("scarto")]
         try:
-            styler_copertura = df_copertura.style.map(_colora_scarto, subset=colonne_scarto)
+            styler_copertura = df_copertura.style.map(_colora_scarto, subset=(righe_scarto, slice(None)))
         except AttributeError:
-            styler_copertura = df_copertura.style.applymap(_colora_scarto, subset=colonne_scarto)
+            styler_copertura = df_copertura.style.applymap(_colora_scarto, subset=(righe_scarto, slice(None)))
         st.dataframe(styler_copertura, use_container_width=True)
 
         # Insights: numero di turni per fascia e totale, per lavoratore
