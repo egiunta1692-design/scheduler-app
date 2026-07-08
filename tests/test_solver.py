@@ -340,6 +340,43 @@ def test_fairness_spalma_surplus_copertura_tra_giorni():
         )
 
 
+def test_fairness_surplus_proporzionale_tra_fasce():
+    """Nel sample M e P hanno lo stesso fabbisogno (3 al giorno): un
+    eventuale surplus non deve concentrarsi su una fascia piuttosto che
+    sull'altra solo perche' venivano bilanciate in modo indipendente.
+    Verifichiamo che, mettendo insieme il surplus di M e di P (stesso
+    fabbisogno, quindi confrontabili direttamente senza bisogno di
+    normalizzare per il fabbisogno), lo scarto resti contenuto."""
+    dati = get_sample_input()
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    minimo_per_giorno_fascia = {
+        (fab.giorno, fab.fascia): fab.minimo for fab in dati.fabbisogno
+    }
+    conteggio_effettivo = defaultdict(int)
+    for a in risultato.assegnazioni:
+        conteggio_effettivo[(a.giorno, a.fascia)] += 1
+
+    giorni = list(range(dati.periodo.giorno_inizio, dati.periodo.giorno_fine + 1))
+
+    surplus_m_e_p = []
+    for f in ("M", "P"):
+        for g in giorni:
+            minimo_gf = minimo_per_giorno_fascia.get((g, f), 0)
+            if minimo_gf > 0:  # confronto valido solo se stesso ordine di grandezza
+                surplus_m_e_p.append(conteggio_effettivo.get((g, f), 0) - minimo_gf)
+
+    scarto = max(surplus_m_e_p) - min(surplus_m_e_p)
+
+    # Soglia larga apposta (controllo di sanita'): prima di questa modifica,
+    # M e P venivano bilanciate in modo completamente indipendente e
+    # potevano divergere parecchio pur avendo lo stesso fabbisogno.
+    assert scarto <= 4, (
+        f"Surplus non bilanciato in modo proporzionale tra M e P: {surplus_m_e_p}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Estensione del periodo fino a domenica (periodo_utils)
 # ---------------------------------------------------------------------------

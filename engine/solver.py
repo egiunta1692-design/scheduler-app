@@ -28,10 +28,12 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza lo scarto (max - min) tra lavoratori sul numero di turni
      per fascia e sul numero di giorni lavorati totali; minimizza inoltre
-     lo scarto (max - min) del surplus di copertura tra i giorni per
-     ciascuna fascia, cosi' un eventuale surplus (assegnazioni oltre il
-     fabbisogno minimo) si distribuisce il piu' possibile invece di
-     concentrarsi su pochi giorni
+     lo scarto (max - min) del TASSO di surplus di copertura (surplus /
+     fabbisogno minimo, non il surplus grezzo), confrontato su un'unica
+     scala tra tutte le fasce e i giorni insieme: cosi' un eventuale
+     surplus si distribuisce in proporzione al fabbisogno invece di
+     concentrarsi su una fascia o un giorno specifico, anche quando il
+     fabbisogno non e' uguale ovunque
 
 Ogni livello e' testato in tests/test_solver.py.
 """
@@ -273,19 +275,31 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
     if dati.parametri_fairness.bilancia_copertura_giornaliera:
         # Il vincolo di copertura minima e' "almeno N persone", non
         # "esattamente N": il motore puo' quindi assegnare surplus in
-        # alcuni giorni per soddisfare altri vincoli/obiettivi (es. ore
-        # settimanali). Senza un termine dedicato, questo surplus puo'
-        # concentrarsi in modo poco realistico su pochi giorni invece di
-        # spalmarsi. Minimizziamo lo scarto (max-min) del surplus per
-        # ciascuna fascia, cosi' se un surplus e' inevitabile viene
-        # distribuito il piu' possibile su tutti i giorni.
+        # alcuni giorni/fasce per soddisfare altri vincoli/obiettivi (es.
+        # ore settimanali). Senza un termine dedicato, questo surplus puo'
+        # concentrarsi in modo poco realistico.
+        #
+        # Non basta bilanciare ogni fascia per conto suo: se M e P hanno
+        # lo stesso fabbisogno (es. 3 e 3) ma il surplus finisce quasi
+        # tutto su P, e' comunque uno squilibrio, anche se preso da solo
+        # il "surplus di P nei vari giorni" risultasse ben distribuito.
+        # Serve una misura PROPORZIONALE al fabbisogno (surplus/minimo),
+        # confrontabile su un'unica scala tra fasce e giorni diversi anche
+        # quando il fabbisogno non e' lo stesso ovunque.
+        #
+        # CP-SAT non supporta divisioni tra variabili in modo diretto per
+        # numeri reali: usiamo AddDivisionEquality con un fattore di scala
+        # (SCALE) per mantenere precisione lavorando solo con interi, poi
+        # normalizziamo lo scarto finale allo stesso ordine di grandezza
+        # degli altri termini di fairness prima di pesarlo.
         minimo_per_giorno_fascia = {
             (fab.giorno, fab.fascia): fab.minimo for fab in dati.fabbisogno
         }
         n_lavoratori = len(lavoratori_ids)
+        SCALE = 100
 
+        tassi_surplus = []
         for f in fasce:
-            surplus_giornalieri = []
             for g in giorni:
                 count_g = model.NewIntVar(0, n_lavoratori, f"copertura_{f}_{g}")
                 model.Add(count_g == sum(x[(w, g, f)] for w in lavoratori_ids))
@@ -293,16 +307,32 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
                 minimo_gf = minimo_per_giorno_fascia.get((g, f), 0)
                 surplus_g = model.NewIntVar(0, n_lavoratori, f"surplus_{f}_{g}")
                 model.Add(surplus_g == count_g - minimo_gf)
-                surplus_giornalieri.append(surplus_g)
 
-            max_s = model.NewIntVar(0, n_lavoratori, f"max_surplus_{f}")
-            min_s = model.NewIntVar(0, n_lavoratori, f"min_surplus_{f}")
-            model.AddMaxEquality(max_s, surplus_giornalieri)
-            model.AddMinEquality(min_s, surplus_giornalieri)
+                if minimo_gf > 0:
+                    # tasso = (surplus / minimo) * SCALE, come intero
+                    tasso_g = model.NewIntVar(0, n_lavoratori * SCALE, f"tasso_{f}_{g}")
+                    model.AddDivisionEquality(tasso_g, surplus_g * SCALE, minimo_gf)
+                    tassi_surplus.append(tasso_g)
+                # Se il fabbisogno e' 0 quel giorno/fascia, la proporzione
+                # non e' definita (divisione per zero): quel surplus resta
+                # comunque vincolato a essere >= 0 dalla definizione sopra,
+                # ma non entra nel bilanciamento proporzionale.
 
-            scarto_copertura = model.NewIntVar(0, n_lavoratori, f"scarto_copertura_{f}")
-            model.Add(scarto_copertura == max_s - min_s)
-            termini_obiettivo.append(peso_fairness * scarto_copertura)
+        if len(tassi_surplus) >= 2:
+            max_t = model.NewIntVar(0, n_lavoratori * SCALE, "max_tasso_surplus")
+            min_t = model.NewIntVar(0, n_lavoratori * SCALE, "min_tasso_surplus")
+            model.AddMaxEquality(max_t, tassi_surplus)
+            model.AddMinEquality(min_t, tassi_surplus)
+
+            scarto_tasso = model.NewIntVar(0, n_lavoratori * SCALE, "scarto_tasso_surplus")
+            model.Add(scarto_tasso == max_t - min_t)
+
+            # Normalizziamo lo scarto togliendo il fattore di scala, cosi'
+            # il peso_fairness pesa questo termine in modo comparabile agli
+            # altri (che sono nell'ordine di 0..n_lavoratori/n_giorni)
+            scarto_tasso_normalizzato = model.NewIntVar(0, n_lavoratori, "scarto_tasso_normalizzato")
+            model.AddDivisionEquality(scarto_tasso_normalizzato, scarto_tasso, SCALE)
+            termini_obiettivo.append(peso_fairness * scarto_tasso_normalizzato)
 
     # ------------------------------------------------------------------
     # Obiettivo finale: minimizza la somma pesata di tutte le penalita' soft
