@@ -89,6 +89,12 @@ soddisfatte e l'equilibrio del carico tra lavoratori.
 **Livello 4 - fairness (soft, priorita' piu' bassa):**
 - minimizza lo scarto (max - min) tra lavoratori sul numero di turni per
   fascia e sul totale di giorni lavorati
+- minimizza inoltre lo scarto (max - min) del **surplus di copertura tra i
+  giorni**, per ciascuna fascia: il fabbisogno minimo e' un vincolo di
+  "almeno N persone", quindi il motore puo' assegnare piu' persone del
+  minimo in certi giorni — senza questo termine il surplus potrebbe
+  concentrarsi in modo poco realistico su pochi giorni invece di
+  distribuirsi
 - peso configurabile rispetto alle richieste soft (di default le
   richieste contano di piu' dell'equilibrio del team)
 

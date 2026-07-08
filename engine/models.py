@@ -74,6 +74,7 @@ class RegoleContrattuali:
 class ParametriFairness:
     bilancia_fasce: bool = True
     bilancia_giorni_settimana: bool = True
+    bilancia_copertura_giornaliera: bool = True
     peso_fairness: int = 2
 
 

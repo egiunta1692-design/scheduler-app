@@ -297,6 +297,7 @@ def _init_state():
     st.session_state.fairness = {
         "bilancia_fasce": demo.parametri_fairness.bilancia_fasce,
         "bilancia_giorni_settimana": demo.parametri_fairness.bilancia_giorni_settimana,
+        "bilancia_copertura_giornaliera": demo.parametri_fairness.bilancia_copertura_giornaliera,
         "peso_fairness": demo.parametri_fairness.peso_fairness,
     }
 
@@ -498,7 +499,7 @@ with tab_regole:
         )
 
     with col2:
-        st.subheader("Fairness (equilibrio tra lavoratori)")
+        st.subheader("Fairness (equilibrio tra lavoratori e giorni)")
         st.session_state.fairness["bilancia_fasce"] = st.checkbox(
             "Bilancia il numero di turni per fascia tra i lavoratori",
             value=st.session_state.fairness["bilancia_fasce"],
@@ -506,6 +507,16 @@ with tab_regole:
         st.session_state.fairness["bilancia_giorni_settimana"] = st.checkbox(
             "Bilancia il totale di giorni lavorati tra i lavoratori",
             value=st.session_state.fairness["bilancia_giorni_settimana"],
+        )
+        st.session_state.fairness["bilancia_copertura_giornaliera"] = st.checkbox(
+            "Spalma il surplus di copertura il piu' possibile tra i giorni",
+            value=st.session_state.fairness["bilancia_copertura_giornaliera"],
+            help=(
+                "Il fabbisogno minimo e' un vincolo di 'almeno N persone', quindi "
+                "il motore puo' assegnare piu' persone del minimo in certi giorni. "
+                "Con questa opzione attiva, un eventuale surplus si distribuisce il "
+                "piu' possibile su tutti i giorni invece di concentrarsi su pochi."
+            ),
         )
         st.session_state.fairness["peso_fairness"] = st.slider(
             "Peso della fairness rispetto alle richieste dei lavoratori",
@@ -609,6 +620,7 @@ def _costruisci_input() -> InputTurnazione:
     fairness = ParametriFairness(
         bilancia_fasce=st.session_state.fairness["bilancia_fasce"],
         bilancia_giorni_settimana=st.session_state.fairness["bilancia_giorni_settimana"],
+        bilancia_copertura_giornaliera=st.session_state.fairness["bilancia_copertura_giornaliera"],
         peso_fairness=int(st.session_state.fairness["peso_fairness"]),
     )
 

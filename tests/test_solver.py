@@ -305,6 +305,41 @@ def test_fairness_riduce_squilibrio_tra_lavoratori():
     assert scarto <= 4
 
 
+def test_fairness_spalma_surplus_copertura_tra_giorni():
+    """Con fabbisogno costante (3M+3P+2N ogni giorno nel sample), se il
+    motore assegna surplus in alcuni giorni deve distribuirlo il piu'
+    possibile invece di concentrarlo: verifichiamo che lo scarto tra il
+    giorno con piu' surplus e quello con meno surplus, per ciascuna
+    fascia, resti contenuto."""
+    dati = get_sample_input()
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    minimo_per_giorno_fascia = {
+        (fab.giorno, fab.fascia): fab.minimo for fab in dati.fabbisogno
+    }
+    conteggio_effettivo = defaultdict(int)
+    for a in risultato.assegnazioni:
+        conteggio_effettivo[(a.giorno, a.fascia)] += 1
+
+    giorni = list(range(dati.periodo.giorno_inizio, dati.periodo.giorno_fine + 1))
+
+    for f in ("M", "P", "N"):
+        surplus_per_giorno = [
+            conteggio_effettivo.get((g, f), 0) - minimo_per_giorno_fascia.get((g, f), 0)
+            for g in giorni
+        ]
+        scarto_surplus = max(surplus_per_giorno) - min(surplus_per_giorno)
+
+        # Soglia larga apposta (controllo di sanita', non vincolo esatto):
+        # se il surplus fosse concentrato su un solo giorno mentre tutti
+        # gli altri restano esattamente al minimo, lo scarto sarebbe alto.
+        assert scarto_surplus <= 4, (
+            f"Surplus di copertura per fascia {f} troppo concentrato: "
+            f"{surplus_per_giorno}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Estensione del periodo fino a domenica (periodo_utils)
 # ---------------------------------------------------------------------------

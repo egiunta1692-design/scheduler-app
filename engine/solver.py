@@ -27,7 +27,11 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
 
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza lo scarto (max - min) tra lavoratori sul numero di turni
-     per fascia e sul numero di giorni lavorati totali
+     per fascia e sul numero di giorni lavorati totali; minimizza inoltre
+     lo scarto (max - min) del surplus di copertura tra i giorni per
+     ciascuna fascia, cosi' un eventuale surplus (assegnazioni oltre il
+     fabbisogno minimo) si distribuisce il piu' possibile invece di
+     concentrarsi su pochi giorni
 
 Ogni livello e' testato in tests/test_solver.py.
 """
@@ -265,6 +269,40 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
         scarto_giorni = model.NewIntVar(0, n_giorni, "scarto_giorni")
         model.Add(scarto_giorni == max_g - min_g)
         termini_obiettivo.append(peso_fairness * scarto_giorni)
+
+    if dati.parametri_fairness.bilancia_copertura_giornaliera:
+        # Il vincolo di copertura minima e' "almeno N persone", non
+        # "esattamente N": il motore puo' quindi assegnare surplus in
+        # alcuni giorni per soddisfare altri vincoli/obiettivi (es. ore
+        # settimanali). Senza un termine dedicato, questo surplus puo'
+        # concentrarsi in modo poco realistico su pochi giorni invece di
+        # spalmarsi. Minimizziamo lo scarto (max-min) del surplus per
+        # ciascuna fascia, cosi' se un surplus e' inevitabile viene
+        # distribuito il piu' possibile su tutti i giorni.
+        minimo_per_giorno_fascia = {
+            (fab.giorno, fab.fascia): fab.minimo for fab in dati.fabbisogno
+        }
+        n_lavoratori = len(lavoratori_ids)
+
+        for f in fasce:
+            surplus_giornalieri = []
+            for g in giorni:
+                count_g = model.NewIntVar(0, n_lavoratori, f"copertura_{f}_{g}")
+                model.Add(count_g == sum(x[(w, g, f)] for w in lavoratori_ids))
+
+                minimo_gf = minimo_per_giorno_fascia.get((g, f), 0)
+                surplus_g = model.NewIntVar(0, n_lavoratori, f"surplus_{f}_{g}")
+                model.Add(surplus_g == count_g - minimo_gf)
+                surplus_giornalieri.append(surplus_g)
+
+            max_s = model.NewIntVar(0, n_lavoratori, f"max_surplus_{f}")
+            min_s = model.NewIntVar(0, n_lavoratori, f"min_surplus_{f}")
+            model.AddMaxEquality(max_s, surplus_giornalieri)
+            model.AddMinEquality(min_s, surplus_giornalieri)
+
+            scarto_copertura = model.NewIntVar(0, n_lavoratori, f"scarto_copertura_{f}")
+            model.Add(scarto_copertura == max_s - min_s)
+            termini_obiettivo.append(peso_fairness * scarto_copertura)
 
     # ------------------------------------------------------------------
     # Obiettivo finale: minimizza la somma pesata di tutte le penalita' soft
