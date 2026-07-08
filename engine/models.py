@@ -65,9 +65,8 @@ class RegoleContrattuali:
     vietato_dopo_notte: list[Fascia] = field(default_factory=lambda: ["M", "P"])
     max_giorni_consecutivi_lavorati: int = 6
     ore_per_fascia: dict[Fascia, int] = field(
-        default_factory=lambda: {"M": 8, "P": 8, "N": 8}
+        default_factory=lambda: {"M": 8, "P": 8, "N": 10}
     )
-    ore_per_fascia: dict[str, int] = field(default_factory=lambda: {"M": 8, "P": 8, "N": 8})
 
 
 @dataclass

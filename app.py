@@ -324,7 +324,7 @@ def _init_state():
         "max_notti_consecutive": demo.regole_contrattuali.max_notti_consecutive,
         "ore_M": demo.regole_contrattuali.ore_per_fascia.get("M", 8),
         "ore_P": demo.regole_contrattuali.ore_per_fascia.get("P", 8),
-        "ore_N": demo.regole_contrattuali.ore_per_fascia.get("N", 8),
+        "ore_N": demo.regole_contrattuali.ore_per_fascia.get("N", 10),
     }
 
     st.session_state.fairness = {
@@ -879,7 +879,7 @@ if risultato is not None:
 
         ore_per_fascia_effettive = (
             ultimo_input.regole_contrattuali.ore_per_fascia if ultimo_input
-            else {"M": 8, "P": 8, "N": 8}
+            else {"M": 8, "P": 8, "N": 10}
         )
         p_ref = st.session_state.periodo
         anno_ref, mese_ref = int(p_ref["anno"]), int(p_ref["mese"])

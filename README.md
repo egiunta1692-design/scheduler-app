@@ -104,7 +104,7 @@ Premi "Genera turni" per vedere:
   lavoratore** (`lavoratore.ore_settimanali_contratto`, nessun fallback
   su un default globale — un valore 0 viene rispettato letteralmente,
   non sostituito silenziosamente) (settimane calendario lun-dom, ore per
-  fascia configurabili, default 8h per M/P/N). Se la prima settimana del
+  fascia configurabili, default 8h per M/P, 10h per N). Se la prima settimana del
   periodo e' a cavallo con l'ultima settimana del mese precedente, le ore
   gia' maturate in `stato_iniziale` in quella settimana vengono sommate
   al conteggio
