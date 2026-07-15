@@ -1203,8 +1203,11 @@ if risultato is not None:
 
         # Metriche fairness
         st.subheader("Equilibrio del carico tra lavoratori")
-        giorni_lavorati = risultato.metriche_fairness.get("giorni_lavorati_per_lavoratore", {})
-        if giorni_lavorati:
-            st.bar_chart(pd.Series(giorni_lavorati, name="giorni lavorati"))
+        st.caption("Ore per fascia (M/P/N) e ore virtuali di ferie (F) per lavoratore, mese di riferimento.")
+        colonne_ore_grafico = ["Ore M", "Ore P", "Ore N", "Ore F"]
+        if not df_insights.empty and all(c in df_insights.columns for c in colonne_ore_grafico):
+            df_ore_grafico = df_insights[colonne_ore_grafico].copy()
+            df_ore_grafico["lavoratore"] = df_insights["nome"]
+            st.bar_chart(df_ore_grafico, x="lavoratore", y=colonne_ore_grafico, horizontal=True)
 else:
     st.info("Configura i dati nelle schede sopra, poi premi 'Genera turni'.")

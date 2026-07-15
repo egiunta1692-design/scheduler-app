@@ -127,7 +127,11 @@ Premi "Genera turni" per vedere:
   "Ore mese" conta invece solo le ore effettivamente lavorate nel mese
   di riferimento (non include le ore virtuali di ferie, a differenza di
   "Ore sett.N")
-- le richieste non soddisfatte e l'equilibrio del carico tra lavoratori
+- le richieste non soddisfatte
+- **Equilibrio del carico tra lavoratori**: grafico a barre orizzontali
+  (lavoratori sull'asse verticale, ore sull'asse orizzontale) con le ore
+  M/P/N/F per lavoratore — le stesse colonne della tabella "Turni per
+  lavoratore" sopra, non piu' il numero di turni come in precedenza
 
 ## Cosa fa il motore adesso (completo sui vincoli principali)
 
