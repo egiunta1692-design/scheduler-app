@@ -71,6 +71,14 @@ griglie e tabelle, mostra anche il giorno della settimana**
      canvas), quindi le tre zone si distinguono con le icone nelle
      intestazioni invece che con colori.
 
+     **Esporta / Importa CSV** (espansione sopra la griglia): scarica la
+     griglia come CSV per modificarla comodamente in Excel o Notepad
+     (colonne 'S&lt;n&gt;' = giorni del mese precedente, colonne numeriche =
+     giorni del periodo), poi ricaricala per applicare le modifiche. Se
+     il CSV caricato ha una struttura leggermente diversa (es. esportato
+     con un mese o un numero di lavoratori diverso), le righe/colonne
+     mancanti restano vuote invece di dare errore, con un avviso.
+
      **Svuota celle in blocco** (espansione sopra la griglia): rimuove
      tutti i codici di uno o piu' lavoratori scelti (multiselezione, con
      una checkbox "Seleziona tutti" per selezionarli/deselezionarli tutti

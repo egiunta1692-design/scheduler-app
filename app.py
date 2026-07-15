@@ -627,6 +627,65 @@ with tab_calendario:
 
     colonne_passato_correnti = set(_colonne_passato())
 
+    with st.expander("Esporta / Importa CSV", expanded=False):
+        st.caption(
+            "Scarica la griglia come CSV per modificarla comodamente in "
+            "Excel o Notepad, poi ricaricala qui per applicare le "
+            "modifiche. Le colonne 'S<n>' sono i giorni del mese "
+            "precedente (situazione iniziale); le colonne numeriche sono "
+            "i giorni del periodo da pianificare. I codici validi per "
+            "ogni cella sono elencati sopra in 'Legenda codici'."
+        )
+
+        csv_bytes = st.session_state.df_calendario.to_csv(
+            index=True, index_label="lavoratore_id"
+        ).encode("utf-8")
+        st.download_button(
+            "Scarica CSV",
+            data=csv_bytes,
+            file_name="situazione_richieste_vincoli.csv",
+            mime="text/csv",
+            key="download_csv_calendario",
+        )
+
+        file_caricato = st.file_uploader(
+            "Carica CSV", type=["csv"], key="upload_csv_calendario"
+        )
+        if file_caricato is not None and st.button("Applica CSV caricato", key="btn_applica_csv"):
+            try:
+                df_caricato = pd.read_csv(file_caricato, index_col="lavoratore_id", dtype=str)
+                df_caricato = df_caricato.fillna("")
+
+                colonne_attuali = list(st.session_state.df_calendario.columns)
+                lavoratori_attuali = list(st.session_state.df_calendario.index)
+                colonne_mancanti = [c for c in colonne_attuali if c not in df_caricato.columns]
+                lavoratori_mancanti = [w for w in lavoratori_attuali if w not in df_caricato.index]
+
+                # Riallinea a righe/colonne attuali: eventuali righe/colonne
+                # extra nel CSV vengono ignorate, quelle mancanti restano
+                # vuote — cosi' un CSV con struttura leggermente diversa
+                # (es. esportato prima di cambiare mese o numero lavoratori)
+                # non causa un errore, solo un avviso.
+                df_caricato = df_caricato.reindex(
+                    index=lavoratori_attuali, columns=colonne_attuali, fill_value=""
+                ).fillna("")
+
+                st.session_state.df_calendario = df_caricato
+                st.session_state.editor_calendario_versione += 1
+
+                messaggio = "CSV caricato e applicato alla griglia."
+                if colonne_mancanti or lavoratori_mancanti:
+                    messaggio += (
+                        " Attenzione: il CSV non copriva tutte le colonne/righe "
+                        "attuali (probabilmente esportato con un periodo o un "
+                        "numero di lavoratori diverso) — le celle mancanti sono "
+                        "state lasciate vuote."
+                    )
+                st.success(messaggio)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Errore nel caricamento del CSV: {e}")
+
     with st.expander("Svuota celle in blocco", expanded=False):
         col_svuota_1, col_svuota_2 = st.columns(2)
 
