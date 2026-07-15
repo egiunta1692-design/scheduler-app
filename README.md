@@ -72,9 +72,14 @@ griglie e tabelle, mostra anche il giorno della settimana**
      intestazioni invece che con colori.
 
      **Svuota celle in blocco** (espansione sopra la griglia): rimuove
-     tutti i codici di un singolo lavoratore (tutte le colonne) oppure
-     di un singolo giorno (tutti i lavoratori), senza doverlo fare cella
-     per cella.
+     tutti i codici di uno o piu' lavoratori scelti (multiselezione, con
+     una checkbox "Seleziona tutti" per selezionarli/deselezionarli tutti
+     in un colpo — di default nessuno e' selezionato; per default svuota
+     solo le colonne del periodo da pianificare, un'altra checkbox
+     permette di includere anche i giorni del mese precedente/situazione
+     iniziale) oppure di uno o piu' giorni scelti (stessa logica di
+     multiselezione e "Seleziona tutti", tutti i lavoratori), senza
+     doverlo fare cella per cella.
 
      **Carica risultato come vincoli** (bottone sotto lo schema turni,
      dopo aver premuto "Genera turni"): trasforma ogni turno assegnato
@@ -91,6 +96,20 @@ anno/mese aggiornava `session_state`, ma le altre schede (gia' eseguite
 sopra in quello stesso giro) mostravano ancora i valori vecchi fino al giro
 di esecuzione successivo. Spostando "Regole & periodo" per prima anche nel
 codice, gli aggiornamenti si propagano subito, nello stesso giro.
+
+## Tempo massimo di calcolo e ottimalita'
+
+Sopra il pulsante "Genera turni" c'e' uno slider **"Tempo massimo di
+calcolo"** (default 30s, fino a 300s). Il motore (CP-SAT) lavora per
+approssimazioni successive verso la soluzione migliore: se il tempo scade
+prima di aver *dimostrato* che la soluzione trovata e' la migliore
+possibile, la restituisce comunque (stato `FEASIBLE` invece di `OPTIMAL`).
+
+Dopo ogni generazione, un messaggio indica se l'**ottimalita' e' stata
+dimostrata**:
+- ✅ dimostrata → aumentare il tempo non cambierebbe il risultato
+- ⏱️ tempo scaduto prima di dimostrarla → potrebbe esistere una soluzione
+  migliore; alzare lo slider e rigenerare puo' aiutare
 
 Premi "Genera turni" per vedere:
 - lo schema turni colorato

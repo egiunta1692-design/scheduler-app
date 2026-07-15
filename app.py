@@ -580,26 +580,59 @@ with tab_calendario:
         col_svuota_1, col_svuota_2 = st.columns(2)
 
         with col_svuota_1:
-            st.caption("Rimuove tutti i codici di UN lavoratore (tutte le colonne, incluse quelle del mese precedente).")
-            lavoratore_da_svuotare = st.selectbox(
-                "Lavoratore", options=list(st.session_state.df_calendario.index),
-                key="select_svuota_lavoratore",
+            st.caption("Rimuove tutti i codici dei lavoratori selezionati.")
+
+            def _sync_tutti_lavoratori():
+                if st.session_state.get("check_tutti_lavoratori"):
+                    st.session_state["multiselect_lavoratori_svuota"] = list(
+                        st.session_state.df_calendario.index
+                    )
+                else:
+                    st.session_state["multiselect_lavoratori_svuota"] = []
+
+            st.checkbox(
+                "Seleziona tutti i lavoratori", value=False,
+                key="check_tutti_lavoratori", on_change=_sync_tutti_lavoratori,
             )
-            if st.button("Svuota lavoratore", key="btn_svuota_lavoratore"):
-                st.session_state.df_calendario.loc[lavoratore_da_svuotare, :] = ""
+            lavoratori_da_svuotare = st.multiselect(
+                "Lavoratori", options=list(st.session_state.df_calendario.index),
+                key="multiselect_lavoratori_svuota",
+            )
+            includi_passato_lavoratore = st.checkbox(
+                "Includi anche i giorni del mese precedente (situazione iniziale)",
+                value=False,
+                key="check_svuota_lavoratore_passato",
+            )
+            if st.button("Svuota lavoratori selezionati", key="btn_svuota_lavoratore", disabled=not lavoratori_da_svuotare):
+                colonne_da_svuotare = (
+                    list(st.session_state.df_calendario.columns) if includi_passato_lavoratore
+                    else _colonne_periodo()
+                )
+                st.session_state.df_calendario.loc[lavoratori_da_svuotare, colonne_da_svuotare] = ""
                 st.session_state.editor_calendario_versione += 1
                 st.rerun()
 
         with col_svuota_2:
-            st.caption("Rimuove tutti i codici di UN giorno (tutti i lavoratori).")
+            st.caption("Rimuove tutti i codici dei giorni selezionati (tutti i lavoratori).")
             etichette_colonne = {col: _etichetta_colonna(col) for col in st.session_state.df_calendario.columns}
-            etichetta_scelta = st.selectbox(
-                "Giorno", options=list(etichette_colonne.values()),
-                key="select_svuota_giorno",
+
+            def _sync_tutti_giorni():
+                if st.session_state.get("check_tutti_giorni"):
+                    st.session_state["multiselect_giorni_svuota"] = list(etichette_colonne.values())
+                else:
+                    st.session_state["multiselect_giorni_svuota"] = []
+
+            st.checkbox(
+                "Seleziona tutti i giorni", value=False,
+                key="check_tutti_giorni", on_change=_sync_tutti_giorni,
             )
-            if st.button("Svuota giorno", key="btn_svuota_giorno"):
-                colonna_scelta = next(c for c, e in etichette_colonne.items() if e == etichetta_scelta)
-                st.session_state.df_calendario.loc[:, colonna_scelta] = ""
+            etichette_scelte = st.multiselect(
+                "Giorni", options=list(etichette_colonne.values()),
+                key="multiselect_giorni_svuota",
+            )
+            if st.button("Svuota giorni selezionati", key="btn_svuota_giorno", disabled=not etichette_scelte):
+                colonne_scelte = [c for c, e in etichette_colonne.items() if e in etichette_scelte]
+                st.session_state.df_calendario.loc[:, colonne_scelte] = ""
                 st.session_state.editor_calendario_versione += 1
                 st.rerun()
 
@@ -768,11 +801,25 @@ def _costruisci_input() -> InputTurnazione:
 
 
 st.divider()
+st.session_state.setdefault("tempo_max_secondi", 30)
+st.session_state["tempo_max_secondi"] = st.slider(
+    "Tempo massimo di calcolo (secondi)",
+    min_value=5, max_value=300, value=st.session_state["tempo_max_secondi"], step=5,
+    help=(
+        "Se il motore non riesce a dimostrare che la soluzione trovata e' "
+        "la migliore possibile entro questo tempo, la restituisce comunque "
+        "(potrebbe non essere ottimale). Dopo aver generato, controlla "
+        "l'indicazione di ottimalita': se non e' stata dimostrata, alzare "
+        "questo valore e rigenerare puo' migliorare il risultato."
+    ),
+)
+
 if st.button("Genera turni", type="primary"):
     try:
         dati = _costruisci_input()
-        with st.spinner("Calcolo dello schema turni in corso..."):
-            st.session_state.risultato = genera_turni(dati)
+        tempo_max = st.session_state["tempo_max_secondi"]
+        with st.spinner(f"Calcolo dello schema turni in corso (fino a {tempo_max}s)..."):
+            st.session_state.risultato = genera_turni(dati, tempo_max_secondi=tempo_max)
             st.session_state.ultimo_input = dati
     except Exception as e:
         st.error(f"Errore nella costruzione dei dati o nel calcolo: {e}")
@@ -801,6 +848,20 @@ if risultato is not None:
             )
         else:
             st.success("Soluzione trovata: tutte le richieste sono state soddisfatte.")
+
+        if risultato.ottimalita_provata:
+            st.caption(
+                f"✅ Ottimalita' dimostrata in {risultato.tempo_impiegato_secondi:.1f}s: "
+                "il motore ha verificato che non esiste una soluzione migliore "
+                "di questa. Aumentare il tempo massimo non cambierebbe il risultato."
+            )
+        else:
+            st.caption(
+                f"⏱️ Tempo massimo ({risultato.tempo_impiegato_secondi:.0f}s) esaurito "
+                "prima di dimostrare l'ottimalita': questa e' la migliore soluzione "
+                "trovata finora, ma potrebbe esistere di meglio. Prova ad alzare "
+                "il 'Tempo massimo di calcolo' sopra e rigenerare."
+            )
 
         # Griglia lavoratore x giorno
         df_ass = pd.DataFrame([

@@ -139,3 +139,5 @@ class OutputTurnazione:
     richieste_non_soddisfatte: list[RichiestaNonSoddisfatta] = field(default_factory=list)
     vincoli_declassati: list[VincoloDeclassato] = field(default_factory=list)
     metriche_fairness: dict = field(default_factory=dict)
+    ottimalita_provata: bool = False  # True se il motore ha dimostrato che non esiste soluzione migliore
+    tempo_impiegato_secondi: float = 0.0

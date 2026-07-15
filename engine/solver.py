@@ -81,7 +81,7 @@ def _raggruppa_per_settimana_iso(anno: int, mese: int, giorni: list[int]) -> dic
     return settimane
 
 
-def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
+def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> OutputTurnazione:
     model = cp_model.CpModel()
 
     giorni = list(range(dati.periodo.giorno_inizio, dati.periodo.giorno_fine + 1))
@@ -423,11 +423,11 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
         model.Minimize(sum(termini_obiettivo))
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 30
+    solver.parameters.max_time_in_seconds = tempo_max_secondi
     status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        return OutputTurnazione(stato="infeasible")
+        return OutputTurnazione(stato="infeasible", tempo_impiegato_secondi=solver.WallTime())
 
     assegnazioni = []
     for w in lavoratori_ids:
@@ -467,6 +467,13 @@ def genera_turni(dati: InputTurnazione) -> OutputTurnazione:
         assegnazioni=assegnazioni,
         richieste_non_soddisfatte=richieste_non_soddisfatte,
         metriche_fairness=metriche_fairness,
+        # OPTIMAL = il motore ha DIMOSTRATO che non esiste soluzione
+        # migliore: aumentare il tempo massimo non cambierebbe nulla.
+        # FEASIBLE = ha trovato una soluzione valida ma il tempo e'
+        # scaduto prima di dimostrare che sia la migliore possibile:
+        # potrebbe esistere di meglio, aumentare il tempo puo' aiutare.
+        ottimalita_provata=(status == cp_model.OPTIMAL),
+        tempo_impiegato_secondi=solver.WallTime(),
     )
 
 
@@ -476,6 +483,8 @@ if __name__ == "__main__":
 
     risultato = genera_turni(get_sample_input())
     print("Stato:", risultato.stato)
+    print(f"Ottimalita' provata: {risultato.ottimalita_provata}")
+    print(f"Tempo impiegato: {risultato.tempo_impiegato_secondi:.1f}s")
     for a in sorted(risultato.assegnazioni, key=lambda a: (a.giorno, a.lavoratore_id)):
         print(f"  giorno {a.giorno:>2}  {a.lavoratore_id}  ->  {a.fascia}")
 
