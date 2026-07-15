@@ -60,13 +60,29 @@ griglie e tabelle, mostra anche il giorno della settimana**
      pianificare, con un codice breve per cella (es. `F3` = richiesta
      ferie priorita' alta, `AM` = turno Mattino forzato dal coordinatore);
      le ultime colonne (icona ➡️), se presenti, sono gia' nel mese
-     successivo. Legenda disponibile nell'espansione "Legenda codici".
-     **Una cella contiene un solo codice**: richiesta soft del lavoratore
-     e vincolo admin del coordinatore sono quindi mutuamente esclusivi per
-     costruzione, non serve validarlo a parte. Nota tecnica: Streamlit
-     non supporta la colorazione di sfondo nelle griglie editabili
-     (sono renderizzate su canvas), quindi le tre zone si distinguono
-     con le icone nelle intestazioni invece che con colori.
+     successivo — per queste non viene mostrato il numero progressivo
+     del giorno (che sarebbe fuorviante, essendo un mese diverso), solo
+     icona + giorno della settimana + data. Legenda disponibile
+     nell'espansione "Legenda codici". **Una cella contiene un solo
+     codice**: richiesta soft del lavoratore e vincolo admin del
+     coordinatore sono quindi mutuamente esclusivi per costruzione, non
+     serve validarlo a parte. Nota tecnica: Streamlit non supporta la
+     colorazione di sfondo nelle griglie editabili (sono renderizzate su
+     canvas), quindi le tre zone si distinguono con le icone nelle
+     intestazioni invece che con colori.
+
+     **Svuota celle in blocco** (espansione sopra la griglia): rimuove
+     tutti i codici di un singolo lavoratore (tutte le colonne) oppure
+     di un singolo giorno (tutti i lavoratori), senza doverlo fare cella
+     per cella.
+
+     **Carica risultato come vincoli** (bottone sotto lo schema turni,
+     dopo aver premuto "Genera turni"): trasforma ogni turno assegnato
+     nell'ultima soluzione in un vincolo admin (`AM`/`AP`/`AN`) nella
+     griglia, cosi' puoi tenere fermo quasi tutto lo schema, modificare
+     a mano solo le celle che vuoi cambiare, e premere di nuovo "Genera
+     turni" per ricalcolare tenendo conto delle modifiche. I giorni
+     senza assegnazione non vengono toccati.
 
 **Nota su un bug corretto**: Streamlit esegue il codice di ogni scheda
 nell'ordine in cui compare nello script, non in base a quale scheda l'utente

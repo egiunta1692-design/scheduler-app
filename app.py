@@ -221,7 +221,7 @@ def _etichetta_colonna(col: str) -> str:
     giorno = int(col)
     data = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), giorno)
     if data.month != int(p["mese"]) or data.year != int(p["anno"]):
-        return f"➡️ {giorno} - {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
+        return f"➡️ {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
     return f"{giorno} - {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
 
 
@@ -337,6 +337,7 @@ def _init_state():
 
     st.session_state.risultato = None
     st.session_state.ultimo_input = None
+    st.session_state.editor_calendario_versione = 0
     st.session_state.inizializzato = True
 
 
@@ -575,10 +576,37 @@ with tab_calendario:
 
     colonne_passato_correnti = set(_colonne_passato())
 
+    with st.expander("Svuota celle in blocco", expanded=False):
+        col_svuota_1, col_svuota_2 = st.columns(2)
+
+        with col_svuota_1:
+            st.caption("Rimuove tutti i codici di UN lavoratore (tutte le colonne, incluse quelle del mese precedente).")
+            lavoratore_da_svuotare = st.selectbox(
+                "Lavoratore", options=list(st.session_state.df_calendario.index),
+                key="select_svuota_lavoratore",
+            )
+            if st.button("Svuota lavoratore", key="btn_svuota_lavoratore"):
+                st.session_state.df_calendario.loc[lavoratore_da_svuotare, :] = ""
+                st.session_state.editor_calendario_versione += 1
+                st.rerun()
+
+        with col_svuota_2:
+            st.caption("Rimuove tutti i codici di UN giorno (tutti i lavoratori).")
+            etichette_colonne = {col: _etichetta_colonna(col) for col in st.session_state.df_calendario.columns}
+            etichetta_scelta = st.selectbox(
+                "Giorno", options=list(etichette_colonne.values()),
+                key="select_svuota_giorno",
+            )
+            if st.button("Svuota giorno", key="btn_svuota_giorno"):
+                colonna_scelta = next(c for c, e in etichette_colonne.items() if e == etichetta_scelta)
+                st.session_state.df_calendario.loc[:, colonna_scelta] = ""
+                st.session_state.editor_calendario_versione += 1
+                st.rerun()
+
     st.session_state.df_calendario = st.data_editor(
         st.session_state.df_calendario,
         use_container_width=True,
-        key="editor_calendario",
+        key=f"editor_calendario_v{st.session_state.editor_calendario_versione}",
         column_config={
             col: st.column_config.SelectboxColumn(
                 label=_etichetta_colonna(col),
@@ -807,6 +835,30 @@ if risultato is not None:
         except AttributeError:
             griglia_stilizzata = griglia_display.style.applymap(_colora)
         st.dataframe(griglia_stilizzata, use_container_width=True)
+
+        st.caption(
+            "Vuoi modificare qualche turno a mano e ricalcolare tenendo "
+            "fermo il resto? Carica questo risultato nella scheda "
+            "Calendario: ogni turno assegnato diventa un vincolo admin "
+            "(AM/AP/AN) — i giorni senza assegnazione restano come sono "
+            "gia' impostati. Poi modifica le celle che vuoi cambiare e "
+            "premi di nuovo 'Genera turni'."
+        )
+        if st.button("Carica questo risultato come vincoli nella scheda Calendario"):
+            for a in risultato.assegnazioni:
+                col_giorno = str(a.giorno)
+                if (
+                    a.lavoratore_id in st.session_state.df_calendario.index
+                    and col_giorno in st.session_state.df_calendario.columns
+                ):
+                    st.session_state.df_calendario.loc[a.lavoratore_id, col_giorno] = _codice_da_admin("turno", a.fascia)
+            st.session_state.editor_calendario_versione += 1
+            st.success(
+                "Risultato caricato come vincoli nella scheda Calendario. "
+                "Vai li' per modificare le celle che vuoi cambiare, poi "
+                "premi di nuovo 'Genera turni'."
+            )
+            st.rerun()
 
         # Copertura effettiva vs fabbisogno, per giorno e fascia: utile per
         # capire quanto la soluzione si discosta dal minimo richiesto (il
