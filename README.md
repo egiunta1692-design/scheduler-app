@@ -114,15 +114,19 @@ dimostrata**:
 Premi "Genera turni" per vedere:
 - lo schema turni colorato
 - la copertura effettiva vs fabbisogno (giorni in colonna, M/P/N in riga)
-- **Turni per lavoratore**: M/P/N, Totale turni, Ore M/P/N sono calcolati
-  **sul solo mese di riferimento selezionato** (escludono sia la
-  situazione iniziale del mese precedente sia l'eventuale sconfinamento
-  nel mese successivo). Le colonne "Ore sett.N" invece includono
-  volutamente anche le ore di situazione iniziale e degli eventuali
-  giorni nel mese successivo, per coerenza col vincolo di ore settimanali
-  del motore (che ragiona su settimane calendario complete lun-dom, non
-  sul solo mese). "Ore mese" segue lo stesso criterio di M/P/N: solo il
-  mese di riferimento
+- **Turni per lavoratore**: M/P/N/**Ferie**/Totale turni/Ore M/P/N/**Ore F**
+  sono calcolati **sul solo mese di riferimento selezionato** (escludono
+  sia la situazione iniziale del mese precedente sia l'eventuale
+  sconfinamento nel mese successivo). "Ferie" conta i giorni di ferie
+  (admin forzata o richiesta soft accolta), non e' inclusa nel Totale
+  turni perche' non e' un turno lavorato; "Ore F" sono le sue ore
+  virtuali equivalenti. Le colonne "Ore sett.N" includono le ore
+  effettivamente lavorate **piu' le ore virtuali di ferie** (stesso
+  criterio usato dal motore per il vincolo di ore settimanali), oltre
+  alla situazione iniziale e agli eventuali giorni nel mese successivo.
+  "Ore mese" conta invece solo le ore effettivamente lavorate nel mese
+  di riferimento (non include le ore virtuali di ferie, a differenza di
+  "Ore sett.N")
 - le richieste non soddisfatte e l'equilibrio del carico tra lavoratori
 
 ## Cosa fa il motore adesso (completo sui vincoli principali)

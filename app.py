@@ -1027,14 +1027,19 @@ if risultato is not None:
         # Insights: turni e ore per lavoratore, per fascia / settimana / mese
         st.subheader("Turni per lavoratore")
         st.caption(
-            "M / P / N / Totale turni / Ore M / Ore P / Ore N: solo i turni "
-            "del mese di riferimento selezionato (esclude sia la situazione "
-            "iniziale del mese precedente sia l'eventuale sconfinamento nel "
-            "mese successivo). Ore per settimana (lun-dom): includono invece "
-            "anche le ore della situazione iniziale e degli eventuali giorni "
-            "del mese successivo, per coerenza col vincolo di ore settimanali "
-            "del motore, che ragiona su settimane calendario complete. Ore "
-            "mese: stesso criterio di M/P/N, solo il mese di riferimento."
+            "M / P / N / Ferie / Totale turni / Ore M / Ore P / Ore N / "
+            "Ore F: solo il mese di riferimento selezionato (esclude sia "
+            "la situazione iniziale del mese precedente sia l'eventuale "
+            "sconfinamento nel mese successivo). 'Ferie' conta i giorni di "
+            "ferie (forzati dall'admin o da richiesta soft accolta), non "
+            "e' inclusa nel Totale turni perche' non e' un turno lavorato; "
+            "'Ore F' sono le sue ore virtuali equivalenti. Ore per "
+            "settimana (lun-dom): includono le ore effettivamente lavorate "
+            "PIU' le ore virtuali di ferie (stesso criterio usato dal "
+            "motore per il vincolo di ore settimanali), oltre alla "
+            "situazione iniziale e agli eventuali giorni del mese "
+            "successivo. Ore mese: solo le ore effettivamente lavorate nel "
+            "mese di riferimento (non include le ore virtuali di ferie)."
         )
 
         lavoratori_ordinati_insights = st.session_state.df_lavoratori["id"].tolist()
@@ -1045,6 +1050,9 @@ if risultato is not None:
         ore_per_fascia_effettive = (
             ultimo_input.regole_contrattuali.ore_per_fascia if ultimo_input
             else {"M": 8, "P": 8, "N": 10}
+        )
+        ore_ferie_giornaliere_effettive = (
+            ultimo_input.regole_contrattuali.ore_ferie_giornaliere if ultimo_input else 8
         )
         p_ref = st.session_state.periodo
         anno_ref, mese_ref = int(p_ref["anno"]), int(p_ref["mese"])
@@ -1060,6 +1068,7 @@ if risultato is not None:
         conteggi_p = defaultdict(int)
         conteggi_n = defaultdict(int)
         conteggi_per_fascia = {"M": conteggi_m, "P": conteggi_p, "N": conteggi_n}
+        conteggi_ferie = defaultdict(int)
         ore_mese_per_lavoratore = defaultdict(int)
 
         for a in risultato.assegnazioni:
@@ -1069,12 +1078,30 @@ if risultato is not None:
                     conteggi_per_fascia[a.fascia][a.lavoratore_id] += 1
                 ore_mese_per_lavoratore[a.lavoratore_id] += ore_per_fascia_effettive.get(a.fascia, 0)
 
+        # Giorni di ferie del mese di riferimento (admin forzata o
+        # richiesta soft accolta), per il conteggio "Ferie" in tabella.
+        id_non_soddisfatte = (
+            {r.richiesta_id for r in risultato.richieste_non_soddisfatte} if risultato else set()
+        )
+        if ultimo_input:
+            for v in ultimo_input.vincoli_admin:
+                if v.tipo == "ferie":
+                    data = data_da_indice_periodo(anno_ref, mese_ref, v.giorno)
+                    if data.month == mese_ref and data.year == anno_ref:
+                        conteggi_ferie[v.lavoratore_id] += 1
+            for r in ultimo_input.richieste_soft:
+                if r.tipo == "ferie" and r.id not in id_non_soddisfatte:
+                    data = data_da_indice_periodo(anno_ref, mese_ref, r.giorno)
+                    if data.month == mese_ref and data.year == anno_ref:
+                        conteggi_ferie[r.lavoratore_id] += 1
+
         # Ore per settimana ISO (lun-dom), per lavoratore: qui invece
         # includiamo DI PROPOSITO sia le assegnazioni del periodo esteso
         # (anche i giorni nel mese successivo) sia le ore di situazione
-        # iniziale che cadono nella stessa settimana solare, per coerenza
-        # col vincolo di ore settimanali del motore (che ragiona per
-        # l'appunto su settimane calendario complete, non sul solo mese).
+        # iniziale che cadono nella stessa settimana solare, PIU' le ore
+        # virtuali di ferie (stesso criterio usato dal motore per il
+        # vincolo di ore settimanali — se non le contassimo qui, questa
+        # tabella non rispecchierebbe fedelmente cosa succede internamente).
         ore_settimana_per_lavoratore = defaultdict(lambda: defaultdict(int))
         settimane_incontrate = {}  # chiave iso -> (data_inizio, data_fine) per etichette ordinate
 
@@ -1095,6 +1122,21 @@ if risultato is not None:
                 ore_settimana_per_lavoratore[si.lavoratore_id][chiave] += ore
                 settimane_incontrate.setdefault(chiave, chiave)
 
+            # Ore virtuali di ferie: admin forzata (sempre) o richiesta
+            # soft accolta (solo se non e' tra le non soddisfatte).
+            for v in ultimo_input.vincoli_admin:
+                if v.tipo == "ferie":
+                    data = data_da_indice_periodo(anno_ref, mese_ref, v.giorno)
+                    chiave = data.isocalendar()[:2]
+                    ore_settimana_per_lavoratore[v.lavoratore_id][chiave] += ore_ferie_giornaliere_effettive
+                    settimane_incontrate.setdefault(chiave, chiave)
+            for r in ultimo_input.richieste_soft:
+                if r.tipo == "ferie" and r.id not in id_non_soddisfatte:
+                    data = data_da_indice_periodo(anno_ref, mese_ref, r.giorno)
+                    chiave = data.isocalendar()[:2]
+                    ore_settimana_per_lavoratore[r.lavoratore_id][chiave] += ore_ferie_giornaliere_effettive
+                    settimane_incontrate.setdefault(chiave, chiave)
+
         settimane_ordinate = sorted(settimane_incontrate.keys())
 
         def _etichetta_settimana(chiave):
@@ -1108,14 +1150,17 @@ if risultato is not None:
         righe_insights = []
         for w in lavoratori_ordinati_insights:
             m, p, n = conteggi_m.get(w, 0), conteggi_p.get(w, 0), conteggi_n.get(w, 0)
+            ferie = conteggi_ferie.get(w, 0)
             riga = {
                 "lavoratore_id": w,
                 "nome": nomi_per_id.get(w, ""),
                 "M": m, "P": p, "N": n,
+                "Ferie": ferie,
                 "Totale turni": m + p + n,
                 "Ore M": m * ore_per_fascia_effettive.get("M", 0),
                 "Ore P": p * ore_per_fascia_effettive.get("P", 0),
                 "Ore N": n * ore_per_fascia_effettive.get("N", 0),
+                "Ore F": ferie * ore_ferie_giornaliere_effettive,
             }
             for chiave in settimane_ordinate:
                 riga[_etichetta_settimana(chiave)] = ore_settimana_per_lavoratore[w].get(chiave, 0)
