@@ -129,9 +129,12 @@ Premi "Genera turni" per vedere:
   "Ore sett.N")
 - le richieste non soddisfatte
 - **Equilibrio del carico tra lavoratori**: grafico a barre orizzontali
-  (lavoratori sull'asse verticale, ore sull'asse orizzontale) con le ore
-  M/P/N/F per lavoratore, nell'ordine M-P-N-F — le stesse colonne della
-  tabella "Turni per lavoratore" sopra
+  (lavoratori sull'asse verticale, ore su quello orizzontale) con le ore
+  M/P/N/F per lavoratore, **nell'ordine esplicito M-P-N-F garantito**.
+  Costruito con Altair (`st.altair_chart`) invece del piu' semplice
+  `st.bar_chart`: quest'ultimo forza l'ordine alfabetico delle serie
+  impilate/legenda e non espone modo di cambiarlo (limite noto, issue
+  aperta sul repository di Streamlit)
 
 ## Cosa fa il motore adesso (completo sui vincoli principali)
 

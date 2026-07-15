@@ -26,6 +26,7 @@ from collections import defaultdict
 
 import streamlit as st
 import pandas as pd
+import altair as alt
 
 from engine.models import (
     InputTurnazione,
@@ -1204,12 +1205,38 @@ if risultato is not None:
         # Metriche fairness
         # Metriche fairness
         # Metriche fairness
+        # Metriche fairness
         st.subheader("Equilibrio del carico tra lavoratori")
         st.caption("Ore per fascia (M/P/N) e ore virtuali di ferie (F) per lavoratore, mese di riferimento.")
         colonne_ore_grafico = ["Ore M", "Ore P", "Ore N", "Ore F"]  # ordine esplicito M-P-N-F
         if not df_insights.empty and all(c in df_insights.columns for c in colonne_ore_grafico):
             df_ore_grafico = df_insights[colonne_ore_grafico].copy()
             df_ore_grafico["lavoratore"] = df_insights["nome"]
-            st.bar_chart(df_ore_grafico, x="lavoratore", y=colonne_ore_grafico, horizontal=True)
+
+            # st.bar_chart (basato su Vega-Lite) forza l'ordine alfabetico
+            # delle serie impilate/legenda, ignorando l'ordine della lista
+            # passata a y= (limite noto, issue aperta su GitHub: la libreria
+            # non espone un parametro per controllarlo). Costruiamo il
+            # grafico direttamente con Altair per avere il pieno controllo
+            # sull'ordine, sia nell'impilamento sia nella legenda.
+            df_lungo = df_ore_grafico.melt(
+                id_vars="lavoratore", value_vars=colonne_ore_grafico,
+                var_name="fascia", value_name="ore",
+            )
+            ordine_fascia = {c: i for i, c in enumerate(colonne_ore_grafico)}
+            df_lungo["ordine"] = df_lungo["fascia"].map(ordine_fascia)
+
+            grafico = (
+                alt.Chart(df_lungo)
+                .mark_bar()
+                .encode(
+                    y=alt.Y("lavoratore:N", sort=None, title="lavoratore"),
+                    x=alt.X("ore:Q", title="ore"),
+                    color=alt.Color("fascia:N", sort=colonne_ore_grafico, title="fascia"),
+                    order=alt.Order("ordine:Q"),
+                    tooltip=["lavoratore", "fascia", "ore"],
+                )
+            )
+            st.altair_chart(grafico, use_container_width=True)
 else:
     st.info("Configura i dati nelle schede sopra, poi premi 'Genera turni'.")

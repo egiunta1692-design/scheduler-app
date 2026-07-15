@@ -1,4 +1,5 @@
 ortools
 streamlit
 pandas
+altair
 pytest
