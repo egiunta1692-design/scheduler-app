@@ -62,40 +62,58 @@ COLORI_FASCIA = {
 # Codici brevi per la griglia richieste/vincoli (una cella = un codice)
 #   ""              -> niente
 #   F1..F4          -> richiesta FERIE, priorita' 1 (bassa) - 4 (molto alta)
+#   R1..R4          -> richiesta RIPOSO, priorita' 1 (bassa) - 4 (molto alta)
 #   M1..M4/P1..P4/N1..N4 -> richiesta TURNO fascia+priorita'
 #   AF              -> vincolo ADMIN: ferie forzata
+#   AR              -> vincolo ADMIN: riposo forzato
 #   AM / AP / AN    -> vincolo ADMIN: turno forzato in quella fascia
 #                      (per le colonne del mese precedente, AM/AP/AN indicano
 #                      invece un turno GIA' effettuato: concettualmente e'
 #                      lo stesso concetto di "assegnazione hard", solo che
 #                      e' gia' un fatto avvenuto invece di un'imposizione
 #                      per il futuro)
+#
+# FERIE vs RIPOSO: bloccano entrambe i turni quel giorno allo stesso modo,
+# ma FERIE aggiunge ore virtuali al monte ore settimanale (e' comunque
+# tempo retribuito), RIPOSO no. Inoltre non e' mai possibile avere ferie
+# il giorno subito dopo una notte (o serie di notti): quel giorno di stop
+# e' un riposo fisiologico obbligatorio, non puo' essere "sostituito" da
+# una ferie — il motore lo impedisce comunque anche se inserito per errore.
 # ---------------------------------------------------------------------------
 PRIORITA_LABEL = {1: "bassa", 2: "media", 3: "alta", 4: "molto alta"}
 
 OPZIONI_CELLA = (
     [""]
     + [f"F{p}" for p in range(1, 5)]
+    + [f"R{p}" for p in range(1, 5)]
     + [f"{fascia}{p}" for fascia in ("M", "P", "N") for p in range(1, 5)]
-    + ["AF", "AM", "AP", "AN"]
+    + ["AF", "AR", "AM", "AP", "AN"]
 )
 
 # Per le colonne del mese precedente (situazione iniziale) ha senso solo
 # registrare il turno gia' effettuato (o nulla): non ha senso una richiesta
-# soft ne' una ferie forzata su un giorno gia' passato.
+# soft ne' una ferie/riposo forzata su un giorno gia' passato.
 OPZIONI_CELLA_PASSATO = ["", "AM", "AP", "AN"]
 
 LEGENDA_CODICI = (
     "**Come leggere i codici nella griglia:**\n\n"
     "- vuoto = nessuna richiesta/vincolo\n"
     "- `F1`...`F4` = richiesta **ferie** del lavoratore, priorita' bassa -> molto alta\n"
+    "- `R1`...`R4` = richiesta **riposo** del lavoratore, priorita' bassa -> molto alta\n"
     "- `M1`...`N4` = richiesta **turno specifico** (M/P/N) del lavoratore, con priorita'\n"
     "- `AF` = **vincolo admin**: ferie forzata dal coordinatore (sempre rispettata)\n"
+    "- `AR` = **vincolo admin**: riposo forzato dal coordinatore (sempre rispettato)\n"
     "- `AM` / `AP` / `AN` = **vincolo admin**: turno forzato dal coordinatore in quella "
     "fascia — sulle colonne del mese precedente (🕓) significa invece un turno **gia' "
     "effettuato**: concettualmente e' lo stesso tipo di informazione (un'assegnazione "
     "certa, non negoziabile), solo che li' e' un fatto del passato invece che "
     "un'imposizione per il futuro\n\n"
+    "**Ferie vs riposo**: bloccano entrambe i turni quel giorno, ma la ferie conta ore "
+    "virtuali nel monte ore settimanale (e' comunque tempo retribuito), il riposo no. "
+    "Il motore non permette mai una ferie il giorno subito dopo una notte (o serie di "
+    "notti): quel giorno di stop e' un riposo fisiologico obbligatorio, non e' "
+    "sostituibile da una ferie — anche se inserita per errore, il motore la ignora in "
+    "quel punto specifico e cerca un'altra soluzione.\n\n"
     "Una cella puo' contenere solo un codice alla volta: richiesta del lavoratore "
     "e vincolo del coordinatore sono alternativi, mai entrambi sullo stesso giorno.\n\n"
     "**Icone nelle intestazioni delle colonne** (Streamlit non supporta colori di "
@@ -226,14 +244,18 @@ def _etichetta_colonna(col: str) -> str:
 
 
 def _codice_da_richiesta(tipo: str, fascia, priorita: int) -> str:
-    if tipo in ("ferie", "riposo"):
+    if tipo == "ferie":
         return f"F{priorita}"
+    if tipo == "riposo":
+        return f"R{priorita}"
     return f"{fascia}{priorita}"
 
 
 def _codice_da_admin(tipo: str, fascia) -> str:
-    if tipo in ("ferie", "riposo"):
+    if tipo == "ferie":
         return "AF"
+    if tipo == "riposo":
+        return "AR"
     return f"A{fascia}"
 
 
@@ -244,13 +266,18 @@ def _decodifica_cella(codice: str):
     if not codice:
         return None
 
-    if codice in ("AF", "AM", "AP", "AN"):
+    if codice in ("AF", "AR", "AM", "AP", "AN"):
         if codice == "AF":
             return ("admin", "ferie", None)
+        if codice == "AR":
+            return ("admin", "riposo", None)
         return ("admin", "turno", codice[1])
 
     if codice[0] == "F" and codice[1:].isdigit() and int(codice[1:]) in range(1, 5):
         return ("richiesta", "ferie", None, int(codice[1:]))
+
+    if codice[0] == "R" and codice[1:].isdigit() and int(codice[1:]) in range(1, 5):
+        return ("richiesta", "riposo", None, int(codice[1:]))
 
     if codice[0] in ("M", "P", "N") and codice[1:].isdigit() and int(codice[1:]) in range(1, 5):
         return ("richiesta", "turno", codice[0], int(codice[1:]))
@@ -325,6 +352,7 @@ def _init_state():
         "ore_M": demo.regole_contrattuali.ore_per_fascia.get("M", 8),
         "ore_P": demo.regole_contrattuali.ore_per_fascia.get("P", 8),
         "ore_N": demo.regole_contrattuali.ore_per_fascia.get("N", 10),
+        "ore_ferie_giornaliere": demo.regole_contrattuali.ore_ferie_giornaliere,
     }
 
     st.session_state.fairness = {
@@ -487,6 +515,15 @@ with tab_regole:
         )
         st.session_state.regole["ore_N"] = st.number_input(
             "Ore turno Notte", value=st.session_state.regole["ore_N"], min_value=1, max_value=12
+        )
+        st.session_state.regole["ore_ferie_giornaliere"] = st.number_input(
+            "Ore ferie giornaliere",
+            value=st.session_state.regole["ore_ferie_giornaliere"], min_value=0, max_value=12,
+            help=(
+                "Ore virtuali che una giornata di ferie aggiunge al monte ore "
+                "settimanale (e' comunque tempo retribuito). Il riposo non "
+                "aggiunge nulla."
+            ),
         )
 
     with col2:
@@ -776,6 +813,7 @@ def _costruisci_input() -> InputTurnazione:
             "P": int(st.session_state.regole["ore_P"]),
             "N": int(st.session_state.regole["ore_N"]),
         },
+        ore_ferie_giornaliere=int(st.session_state.regole["ore_ferie_giornaliere"]),
     )
 
     fairness = ParametriFairness(
@@ -878,12 +916,26 @@ if risultato is not None:
             if row["lavoratore_id"] in griglia.index and row["giorno"] in griglia.columns:
                 griglia.loc[row["lavoratore_id"], row["giorno"]] = row["fascia"]
 
-        # segna le ferie/riposo forzati dall'admin come "FERIE" per chiarezza
+        # Segna ferie e riposo con etichette distinte (non piu' genericamente
+        # "FERIE" per entrambi), sia per i vincoli admin sia per le
+        # richieste soft effettivamente accolte dal motore — prima solo i
+        # vincoli admin venivano etichettati, le richieste soft honoree
+        # restavano genericamente vuote.
         if ultimo_input:
+            id_non_soddisfatte = {r.richiesta_id for r in risultato.richieste_non_soddisfatte}
+
             for v in ultimo_input.vincoli_admin:
                 if v.tipo in ("ferie", "riposo"):
                     if v.lavoratore_id in griglia.index and v.giorno in griglia.columns:
-                        griglia.loc[v.lavoratore_id, v.giorno] = "FERIE"
+                        griglia.loc[v.lavoratore_id, v.giorno] = "FERIE" if v.tipo == "ferie" else "RIPOSO"
+
+            for r in ultimo_input.richieste_soft:
+                if r.tipo in ("ferie", "riposo") and r.id not in id_non_soddisfatte:
+                    if r.lavoratore_id in griglia.index and r.giorno in griglia.columns:
+                        # non sovrascrive un eventuale vincolo admin sulla
+                        # stessa cella, che ha sempre precedenza logica
+                        if griglia.loc[r.lavoratore_id, r.giorno] == "":
+                            griglia.loc[r.lavoratore_id, r.giorno] = "FERIE" if r.tipo == "ferie" else "RIPOSO"
 
         def _colora(val):
             colore = COLORI_FASCIA.get(val, "white")

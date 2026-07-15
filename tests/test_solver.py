@@ -17,6 +17,7 @@ from engine.models import (
     StatoIniziale,
     RegoleContrattuali,
     RichiestaSoft,
+    VincoloAdmin,
 )
 from engine.sample_data import get_sample_input
 from engine.solver import genera_turni
@@ -533,4 +534,148 @@ def test_fairness_bilancia_ore_per_settimana():
         # funzionando.
         assert scarto <= 16, (
             f"Scarto ore troppo alto nella settimana {chiave}: {ore_complete}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Ferie vs riposo: ore virtuali nel monte ore settimanale
+# ---------------------------------------------------------------------------
+
+def test_ferie_forzata_riduce_capacita_oraria_disponibile():
+    """w1 (unico lavoratore disponibile) ha ferie forzata il giorno 3.
+    Il fabbisogno richiede 4 turni nella stessa settimana che solo lui puo'
+    coprire: 4*8=32h + 8h virtuali di ferie = 40h > 36h contrattuali ->
+    deve essere INFEASIBLE, anche se fisicamente lavorerebbe solo 32 ore."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_ferie_ore",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),  # 1 giu 2026 = lunedi'
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+            Fabbisogno(giorno=2, fascia="M", minimo=1),
+            Fabbisogno(giorno=4, fascia="M", minimo=1),
+            Fabbisogno(giorno=5, fascia="M", minimo=1),
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=3, tipo="ferie"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Con la ferie che conta ore virtuali, 4 turni + 1 ferie nella stessa "
+        "settimana dovrebbero superare il monte ore e rendere il problema "
+        "irrisolvibile con un solo lavoratore disponibile"
+    )
+
+
+def test_riposo_forzato_non_riduce_capacita_oraria():
+    """Stesso identico scenario del test sopra, ma con RIPOSO invece di
+    FERIE: il riposo non aggiunge ore virtuali, quindi 4 turni da 8h (32h)
+    restano sotto le 36h contrattuali e il problema deve essere risolvibile."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_riposo_ore",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+            Fabbisogno(giorno=2, fascia="M", minimo=1),
+            Fabbisogno(giorno=4, fascia="M", minimo=1),
+            Fabbisogno(giorno=5, fascia="M", minimo=1),
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=3, tipo="riposo"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible", (
+        "Il riposo non deve aggiungere ore virtuali: 4 turni da 8h (32h) "
+        "restano sotto le 36h contrattuali"
+    )
+
+    turni_w1 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w1"]
+    assert len(turni_w1) == 4
+
+
+# ---------------------------------------------------------------------------
+# Niente notte il giorno prima di una ferie (forzata o concessa)
+# ---------------------------------------------------------------------------
+
+def test_niente_notte_prima_di_ferie_forzata():
+    """w1 ha ferie forzata il giorno 2: non deve mai fare notte il giorno 1,
+    anche se fabbisogno e disponibilita' lo renderebbero altrimenti comodo
+    (con solo 2 lavoratori, deve essere w2 a coprire quella notte)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_notte_ferie",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="N", minimo=1),
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=2, tipo="ferie"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    notte_giorno1 = [a for a in risultato.assegnazioni if a.giorno == 1 and a.fascia == "N"]
+    assert len(notte_giorno1) == 1
+    assert notte_giorno1[0].lavoratore_id == "w2", (
+        "w1 ha ferie forzata il giorno 2: non puo' aver fatto notte il "
+        "giorno prima, deve coprire w2"
+    )
+
+
+def test_niente_notte_prima_di_richiesta_ferie_concessa():
+    """Se una richiesta soft di ferie viene concessa (il lavoratore risulta
+    libero quel giorno), il giorno prima non deve avere una notte per lo
+    stesso lavoratore — verifichiamo l'implicazione logica, qualunque sia
+    la decisione presa dal motore sulla richiesta."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_notte_ferie_soft",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="N", minimo=1),
+        ],
+        richieste_soft=[
+            RichiestaSoft(id="req1", lavoratore_id="w1", giorno=2, tipo="ferie", priorita=4),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    w1_lavora_giorno2 = any(a.lavoratore_id == "w1" and a.giorno == 2 for a in risultato.assegnazioni)
+    w1_notte_giorno1 = any(
+        a.lavoratore_id == "w1" and a.giorno == 1 and a.fascia == "N" for a in risultato.assegnazioni
+    )
+
+    if not w1_lavora_giorno2:
+        # La richiesta di ferie e' stata concessa: w1 non deve aver fatto
+        # notte il giorno prima.
+        assert not w1_notte_giorno1, (
+            "La richiesta di ferie di w1 e' stata concessa (giorno 2 libero) "
+            "ma w1 ha fatto notte il giorno prima: non dovrebbe essere possibile"
         )

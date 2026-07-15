@@ -9,15 +9,13 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      - riposo obbligatorio dopo un turno notturno
      - vincolo personale "mai notti" (lavoratore.vincoli_personali.mai_notti)
      - massimo notti consecutive (con override personale possibile)
-     - massimo ore settimanali da contratto, sempre per singolo lavoratore
-       (lavoratore.ore_settimanali_contratto, nessun fallback su un default
-       globale)
-       (tutti tengono conto di stato_iniziale per i casi a cavallo di mese,
-       incluse le ore gia' maturate nella stessa settimana ISO se la
-       settimana e' a cavallo con il mese precedente)
+     (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
 
   2. VINCOLI ADMIN (hard, imposti dal coordinatore):
-     - "ferie" / "riposo" forzati -> giorno bloccato
+     - "ferie" / "riposo" forzati -> giorno bloccato (nessun turno). La
+       differenza tra i due non e' nel blocco (identico), ma nel monte ore
+       settimanale: la ferie aggiunge ore virtuali (vedi punto sotto), il
+       riposo no
      - "turno" forzato -> fascia specifica imposta
      (nota: la validazione preventiva di conflitti e il meccanismo di
      declassamento automatico sono volutamente rimandati a una fase
@@ -26,7 +24,20 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
   3. RICHIESTE SOFT (preferenze lavoratore, pesate 1-4):
      entrano nella funzione obiettivo come penalita' se non soddisfatte,
      con pesi esponenziali cosi' una richiesta di priorita' alta non
-     viene mai sacrificata per soddisfarne tante di priorita' bassa
+     viene mai sacrificata per soddisfarne tante di priorita' bassa.
+     Anche qui, ferie e riposo condividono lo stesso vincolo di blocco ma
+     si comportano diversamente nel monte ore (vedi sotto)
+
+  MONTE ORE SETTIMANALE E FERIE VS RIPOSO:
+     massimo ore settimanali da contratto, sempre per singolo lavoratore
+     (lavoratore.ore_settimanali_contratto, nessun fallback su un default
+     globale), calcolato dopo i livelli 2 e 3 perche' le giornate di FERIE
+     (forzate dall'admin o concesse tramite richiesta soft accolta)
+     aggiungono ore "virtuali" al monte ore (regole_contrattuali.
+     ore_ferie_giornaliere, e' comunque tempo retribuito), mentre il
+     RIPOSO non aggiunge nulla. Tutto tiene conto di stato_iniziale per i
+     casi a cavallo di mese, incluse le ore gia' maturate nella stessa
+     settimana ISO se la settimana e' a cavallo con il mese precedente
 
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza lo scarto (max - min) tra lavoratori sul numero di turni
@@ -179,43 +190,10 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 if finestra_iniziale:
                     model.Add(sum(x[(w, g, "N")] for g in finestra_iniziale) <= margine)
 
-    # Massimo ore settimanali da contratto
-    ore_per_fascia = dati.regole_contrattuali.ore_per_fascia
-    settimane = _raggruppa_per_settimana_iso(dati.periodo.anno, dati.periodo.mese, giorni)
-
-    # Ore gia' maturate nel mese precedente per la stessa settimana ISO:
-    # se la prima settimana del periodo e' a cavallo con l'ultima settimana
-    # del mese precedente, le ore di stato_iniziale che cadono in quella
-    # settimana vanno sommate al conteggio, altrimenti il vincolo settimanale
-    # ignorerebbe turni gia' effettuati nella stessa settimana solare.
-    ore_pregresse_per_settimana: dict[str, dict[tuple[int, int], int]] = {}
-    for si in dati.stato_iniziale:
-        if not si.mese_precedente:
-            continue
-        data_si = data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
-        anno_iso, settimana_iso, _ = data_si.isocalendar()
-        chiave = (anno_iso, settimana_iso)
-        ore = ore_per_fascia.get(si.fascia, 0)
-        per_lavoratore = ore_pregresse_per_settimana.setdefault(si.lavoratore_id, {})
-        per_lavoratore[chiave] = per_lavoratore.get(chiave, 0) + ore
-
-    for w in lavoratori_ids:
-        lavoratore = next(l for l in dati.lavoratori if l.id == w)
-        # Nota: niente fallback su un default globale qui. Il campo e'
-        # obbligatorio e specifico per lavoratore; un "or" con un default
-        # globale tratterebbe erroneamente 0 (es. lavoratore con contratto
-        # sospeso quel mese) come "non impostato", sostituendolo col
-        # default 36h in modo silenzioso e sbagliato.
-        max_ore = lavoratore.ore_settimanali_contratto
-
-        for chiave_settimana, giorni_settimana in settimane.items():
-            ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
-            ore_espr = sum(
-                ore_per_fascia.get(f, 0) * x[(w, g, f)]
-                for g in giorni_settimana
-                for f in fasce
-            )
-            model.Add(ore_espr + ore_gia_maturate <= max_ore)
+    # Massimo ore settimanali da contratto: vedi blocco dedicato PIU' SOTTO,
+    # dopo i vincoli admin e le richieste soft — serve sapere quali giorni
+    # sono ferie (forzate o concesse tramite richiesta soft) per contarne
+    # correttamente le ore virtuali nel monte ore settimanale.
 
     # ==================================================================
     # LIVELLO 2: vincoli admin (hard, imposti dal coordinatore)
@@ -227,6 +205,25 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         if vadm.tipo in ("ferie", "riposo"):
             for f in fasce:
                 model.Add(x[(vadm.lavoratore_id, vadm.giorno, f)] == 0)
+
+            # Il giorno di riposo dopo una notte e' fisiologico, non puo'
+            # essere "sostituito" da una ferie: se il giorno X e' ferie
+            # forzata, il giorno X-1 non puo' essere notte (altrimenti la
+            # ferie starebbe coprendo il riposo obbligatorio invece di
+            # essere un giorno di assenza vero e proprio). Vale solo per
+            # la ferie, non per il riposo: il riposo E' esattamente cio'
+            # che ci si aspetta dopo una notte, non va impedito li'.
+            if vadm.tipo == "ferie" and "N" in fasce:
+                giorno_prima = vadm.giorno - 1
+                if giorno_prima in giorni:
+                    model.Add(x[(vadm.lavoratore_id, giorno_prima, "N")] == 0)
+                # Nota: se il giorno prima e' fuori periodo (in
+                # stato_iniziale), un'eventuale notte gia' effettuata li'
+                # e' un fatto storico che non possiamo cambiare — un
+                # conflitto in tal caso andrebbe segnalato dall'utente,
+                # la validazione automatica di questo caso specifico non
+                # e' ancora implementata (vedi nota sopra sulla
+                # validazione preventiva rimandata).
 
         elif vadm.tipo == "turno" and vadm.fascia in fasce:
             model.Add(x[(vadm.lavoratore_id, vadm.giorno, vadm.fascia)] == 1)
@@ -246,9 +243,22 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         miss_vars_per_richiesta[req.id] = miss
 
         if req.tipo in ("ferie", "riposo"):
-            # "miss" = 1 se il lavoratore lavora quel giorno (qualsiasi fascia)
+            # "miss" = 1 se il lavoratore lavora quel giorno (qualsiasi fascia).
+            # Vale sia per ferie che per riposo: la differenza tra le due non
+            # e' nel vincolo (in entrambi i casi niente turno quel giorno),
+            # ma in come contano nel monte ore settimanale (vedi sotto).
             for f in fasce:
                 model.Add(miss >= x[(req.lavoratore_id, req.giorno, f)])
+
+            # Stessa logica del vincolo admin sopra: se la richiesta di
+            # FERIE viene concessa (miss == 0), il giorno prima non puo'
+            # essere notte — il motore dovra' quindi valutare se concedere
+            # la ferie vale la pena di ri-assegnare quella notte a
+            # qualcun altro, invece di ignorare il problema.
+            if req.tipo == "ferie" and "N" in fasce:
+                giorno_prima = req.giorno - 1
+                if giorno_prima in giorni:
+                    model.Add(x[(req.lavoratore_id, giorno_prima, "N")] == 0).OnlyEnforceIf(miss.Not())
 
         elif req.tipo == "turno" and req.fascia in fasce:
             # "miss" = 1 se NON gli viene assegnata la fascia richiesta
@@ -258,6 +268,92 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             continue
 
         termini_obiettivo.append(peso * miss)
+
+    # ==================================================================
+    # Massimo ore settimanali da contratto
+    #
+    # Una giornata di FERIE (forzata dall'admin o concessa tramite
+    # richiesta soft) aggiunge ore "virtuali" al monte ore settimanale,
+    # perche' e' comunque tempo retribuito nel rapporto di lavoro — a
+    # differenza del RIPOSO, che non aggiunge nulla. Esempio: con un
+    # contratto da 36h, 4 giorni lavorati (32h) + 1 ferie (8h virtuali)
+    # = 40h > 36h, quindi NON ammissibile anche se il lavoratore ha
+    # fisicamente lavorato solo 32 ore.
+    # ==================================================================
+    ore_per_fascia = dati.regole_contrattuali.ore_per_fascia
+    ore_ferie_giornaliere = dati.regole_contrattuali.ore_ferie_giornaliere
+    settimane = _raggruppa_per_settimana_iso(dati.periodo.anno, dati.periodo.mese, giorni)
+
+    # Ore gia' maturate nel mese precedente per la stessa settimana ISO:
+    # se la prima settimana del periodo e' a cavallo con l'ultima settimana
+    # del mese precedente, le ore di stato_iniziale che cadono in quella
+    # settimana vanno sommate al conteggio, altrimenti il vincolo settimanale
+    # ignorerebbe turni gia' effettuati nella stessa settimana solare.
+    ore_pregresse_per_settimana: dict[str, dict[tuple[int, int], int]] = {}
+    for si in dati.stato_iniziale:
+        if not si.mese_precedente:
+            continue
+        data_si = data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
+        anno_iso, settimana_iso, _ = data_si.isocalendar()
+        chiave = (anno_iso, settimana_iso)
+        ore = ore_per_fascia.get(si.fascia, 0)
+        per_lavoratore = ore_pregresse_per_settimana.setdefault(si.lavoratore_id, {})
+        per_lavoratore[chiave] = per_lavoratore.get(chiave, 0) + ore
+
+    # Giorni di ferie FORZATA dall'admin: contano sempre le ore virtuali,
+    # e' un fatto certo (non condizionato a nessuna variabile del solver).
+    ferie_forzata_per_settimana: dict[str, dict[tuple[int, int], int]] = {}
+    for vadm in dati.vincoli_admin:
+        if vadm.tipo != "ferie" or vadm.giorno not in giorni or vadm.lavoratore_id not in lavoratori_ids:
+            continue
+        data_v = data_da_indice_periodo(dati.periodo.anno, dati.periodo.mese, vadm.giorno)
+        chiave = data_v.isocalendar()[:2]
+        per_lavoratore = ferie_forzata_per_settimana.setdefault(vadm.lavoratore_id, {})
+        per_lavoratore[chiave] = per_lavoratore.get(chiave, 0) + ore_ferie_giornaliere
+
+    # Richieste soft di ferie: contano le ore virtuali SOLO se la richiesta
+    # viene effettivamente concessa (variabile 'miss' della richiesta == 0).
+    # Usiamo l'espressione (1 - miss) * ore_ferie_giornaliere, che vale
+    # ore_ferie_giornaliere quando miss=0 (concessa) e 0 quando miss=1
+    # (rifiutata, nel qual caso il lavoratore lavora davvero quel giorno e
+    # le sue ore reali sono gia' contate a parte).
+    ferie_soft_per_settimana: dict[str, dict[tuple[int, int], list]] = {}
+    for req in dati.richieste_soft:
+        if req.tipo != "ferie" or req.giorno not in giorni or req.lavoratore_id not in lavoratori_ids:
+            continue
+        miss = miss_vars_per_richiesta.get(req.id)
+        if miss is None:
+            continue
+        data_r = data_da_indice_periodo(dati.periodo.anno, dati.periodo.mese, req.giorno)
+        chiave = data_r.isocalendar()[:2]
+        per_lavoratore = ferie_soft_per_settimana.setdefault(req.lavoratore_id, {})
+        per_lavoratore.setdefault(chiave, []).append(miss)
+
+    for w in lavoratori_ids:
+        lavoratore = next(l for l in dati.lavoratori if l.id == w)
+        # Nota: niente fallback su un default globale qui. Il campo e'
+        # obbligatorio e specifico per lavoratore; un "or" con un default
+        # globale tratterebbe erroneamente 0 (es. lavoratore con contratto
+        # sospeso quel mese) come "non impostato", sostituendolo col
+        # default 36h in modo silenzioso e sbagliato.
+        max_ore = lavoratore.ore_settimanali_contratto
+
+        for chiave_settimana, giorni_settimana in settimane.items():
+            ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
+            ore_ferie_forzata = ferie_forzata_per_settimana.get(w, {}).get(chiave_settimana, 0)
+            miss_vars_ferie_soft = ferie_soft_per_settimana.get(w, {}).get(chiave_settimana, [])
+
+            ore_espr = sum(
+                ore_per_fascia.get(f, 0) * x[(w, g, f)]
+                for g in giorni_settimana
+                for f in fasce
+            )
+            ore_ferie_soft_espr = sum(
+                ore_ferie_giornaliere * (1 - miss) for miss in miss_vars_ferie_soft
+            )
+            model.Add(
+                ore_espr + ore_gia_maturate + ore_ferie_forzata + ore_ferie_soft_espr <= max_ore
+            )
 
     # ==================================================================
     # LIVELLO 4: fairness (soft, priorita' piu' bassa)
@@ -329,10 +425,21 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
                 capacita_residua = max(max_ore_w - ore_gia_maturate, 0)
 
+                ore_ferie_forzata = ferie_forzata_per_settimana.get(w, {}).get(chiave_settimana, 0)
+                miss_vars_ferie_soft = ferie_soft_per_settimana.get(w, {}).get(chiave_settimana, [])
+                ore_ferie_soft_espr = sum(
+                    ore_ferie_giornaliere * (1 - miss) for miss in miss_vars_ferie_soft
+                )
+
+                # Le ore "nuove" includono anche le ore virtuali di ferie:
+                # un lavoratore in ferie ha comunque "consumato" la sua
+                # capacita' quella settimana, non e' sottoutilizzato solo
+                # perche' non ha fisicamente lavorato quel giorno.
                 ore_nuove_w = model.NewIntVar(0, max_ore_w, f"ore_nuove_{chiave_settimana}_{w}")
                 model.Add(
                     ore_nuove_w
                     == sum(ore_per_fascia.get(f, 0) * x[(w, g, f)] for g in giorni_settimana for f in fasce)
+                    + ore_ferie_forzata + ore_ferie_soft_espr
                 )
 
                 if capacita_residua > 0:

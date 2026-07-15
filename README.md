@@ -58,8 +58,8 @@ griglie e tabelle, mostra anche il giorno della settimana**
      questo, gestisce `stato_iniziale` in modo generico indipendentemente
      dal numero di giorni). Le colonne successive sono il periodo da
      pianificare, con un codice breve per cella (es. `F3` = richiesta
-     ferie priorita' alta, `AM` = turno Mattino forzato dal coordinatore);
-     le ultime colonne (icona ➡️), se presenti, sono gia' nel mese
+     ferie priorita' alta, `R2` = richiesta riposo priorita' media, `AM` =
+     turno Mattino forzato dal coordinatore, `AR` = riposo forzato); le ultime colonne (icona ➡️), se presenti, sono gia' nel mese
      successivo — per queste non viene mostrato il numero progressivo
      del giorno (che sarebbe fuorviante, essendo un mese diverso), solo
      icona + giorno della settimana + data. Legenda disponibile
@@ -135,20 +135,19 @@ Premi "Genera turni" per vedere:
 - vincolo personale "mai notti" (`lavoratore.vincoli_personali.mai_notti`)
 - massimo notti consecutive (default 2, override possibile per singolo
   lavoratore)
-- massimo ore settimanali da contratto, **sempre specifico per singolo
-  lavoratore** (`lavoratore.ore_settimanali_contratto`, nessun fallback
-  su un default globale — un valore 0 viene rispettato letteralmente,
-  non sostituito silenziosamente) (settimane calendario lun-dom, ore per
-  fascia configurabili, default 8h per M/P, 10h per N). Se la prima settimana del
-  periodo e' a cavallo con l'ultima settimana del mese precedente, le ore
-  gia' maturate in `stato_iniziale` in quella settimana vengono sommate
-  al conteggio
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a
   cavallo con il mese precedente
 
 **Livello 2 - vincoli admin (hard, imposti dal coordinatore):**
-- "ferie"/"riposo" forzati -> giorno bloccato
+- "ferie" forzata o "riposo" forzato -> giorno bloccato (nessun turno)
 - "turno" forzato -> fascia specifica imposta
+- **ferie e riposo bloccano allo stesso modo, ma non sono equivalenti**:
+  vedi "Ferie vs riposo" sotto per la differenza sul monte ore
+- **niente notte il giorno prima di una ferie forzata**: il giorno di
+  stop dopo una notte (o serie di notti) e' un riposo fisiologico
+  obbligatorio, non sostituibile da una ferie — il motore lo impedisce
+  anche se inserito per errore, cercando un'altra soluzione (es.
+  assegnando quella notte a un altro lavoratore)
 - nota: la validazione preventiva di conflitti tra vincoli admin e il
   meccanismo di declassamento automatico sono rimandati a una fase
   successiva (come deciso insieme)
@@ -158,7 +157,35 @@ Premi "Genera turni" per vedere:
   internamente su pesi esponenziali (1, 10, 100, 1000) cosi' una
   richiesta di priorita' alta non viene mai sacrificata per soddisfarne
   tante di priorita' bassa
+- tipi disponibili: `ferie`, `riposo`, `turno` (fascia specifica)
+- se una richiesta di **ferie** viene concessa (il lavoratore risulta
+  libero quel giorno), vale la stessa regola del vincolo admin: niente
+  notte il giorno prima — il motore valuta quindi se concedere la
+  richiesta vale la "ri-assegnazione" di quella notte a qualcun altro
 - le richieste non soddisfatte vengono riportate esplicitamente in output
+
+**Monte ore settimanale:**
+massimo ore settimanali da contratto, **sempre specifico per singolo
+lavoratore** (`lavoratore.ore_settimanali_contratto`, nessun fallback su
+un default globale — un valore 0 viene rispettato letteralmente, non
+sostituito silenziosamente), calcolato su settimane calendario lun-dom
+(ore per fascia configurabili, default 8h per M/P, 10h per N). Se la
+prima settimana del periodo e' a cavallo con l'ultima settimana del mese
+precedente, le ore gia' maturate in `stato_iniziale` in quella settimana
+vengono sommate al conteggio. Vedi anche "Ferie vs riposo" sotto per come
+contano le giornate di ferie.
+
+**Ferie vs riposo — differenza sul monte ore:**
+entrambe bloccano i turni allo stesso identico modo, ma non sono
+equivalenti nel monte ore settimanale: una giornata di **ferie**
+(forzata dall'admin o concessa tramite richiesta soft) aggiunge
+`regole_contrattuali.ore_ferie_giornaliere` (default 8h, un solo valore
+per reparto) al conteggio ore settimanali — e' comunque tempo retribuito
+nel rapporto di lavoro. Il **riposo** non aggiunge nulla. Esempio: con un
+contratto da 36h, 4 giorni lavorati (32h) + 1 ferie (8h virtuali) = 40h,
+che supera il monte ore anche se il lavoratore ha fisicamente lavorato
+solo 32 ore — il motore lo tiene in considerazione e riduce di
+conseguenza i turni reali assegnabili quella settimana.
 
 **Livello 4 - fairness (soft, priorita' piu' bassa):**
 - minimizza lo scarto (max - min) tra lavoratori sul numero di turni per

@@ -67,6 +67,10 @@ class RegoleContrattuali:
     ore_per_fascia: dict[Fascia, int] = field(
         default_factory=lambda: {"M": 8, "P": 8, "N": 10}
     )
+    # Ore "virtuali" che una giornata di ferie aggiunge al monte ore
+    # settimanale del lavoratore (per contratto), distinte dal riposo che
+    # non aggiunge nulla. Valore unico per tutto il reparto.
+    ore_ferie_giornaliere: int = 8
 
 
 @dataclass
