@@ -79,6 +79,7 @@ class ParametriFairness:
     bilancia_giorni_settimana: bool = True
     bilancia_copertura_giornaliera: bool = True
     bilancia_ore_settimanali: bool = True
+    minimizza_pm_consecutivo: bool = True
     peso_fairness: int = 2
 
 

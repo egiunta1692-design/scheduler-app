@@ -55,7 +55,11 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      un'unica scala tra tutte le fasce e i giorni insieme: cosi' un
      eventuale surplus si distribuisce in proporzione al fabbisogno invece
      di concentrarsi su una fascia o un giorno specifico, anche quando il
-     fabbisogno non e' uguale ovunque
+     fabbisogno non e' uguale ovunque; minimizza infine (se attivo) le
+     sequenze Pomeriggio->Mattino su giorni consecutivi per lo stesso
+     lavoratore, che lasciano un riposo piu' corto rispetto a
+     Mattino->Pomeriggio — non e' vietato (spesso inevitabile per la
+     copertura), solo penalizzato, premiando implicitamente M->P su P->M
 
 Ogni livello e' testato in tests/test_solver.py.
 """
@@ -522,6 +526,29 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             scarto_tasso_normalizzato = model.NewIntVar(0, n_lavoratori, "scarto_tasso_normalizzato")
             model.AddDivisionEquality(scarto_tasso_normalizzato, scarto_tasso, SCALE)
             termini_obiettivo.append(peso_fairness * scarto_tasso_normalizzato)
+
+    if dati.parametri_fairness.minimizza_pm_consecutivo and "P" in fasce and "M" in fasce:
+        # Una sequenza Pomeriggio (giorno G) -> Mattino (giorno G+1) lascia
+        # un riposo molto piu' corto tra i due turni (es. P finisce sera
+        # tardi, M inizia presto la mattina dopo) rispetto a Mattino ->
+        # Pomeriggio (M finisce a meta' giornata, P il giorno dopo inizia
+        # solo nel pomeriggio: quasi un giorno intero di margine). Non e'
+        # un vincolo hard: e' spesso inevitabile per esigenze di copertura,
+        # quindi lo minimizziamo dove possibile invece di vietarlo, cosi'
+        # M->P viene implicitamente premiato rispetto a P->M.
+        #
+        # "AND soft": pm_var deve valere 1 quando sia P(giorno) che
+        # M(giorno+1) sono assegnati. Basta il vincolo di minimo (>=),
+        # senza bisogno del vincolo di massimo, perche' la minimizzazione
+        # nell'obiettivo spinge gia' pm_var a 0 in tutti gli altri casi.
+        for w in lavoratori_ids:
+            for g in giorni:
+                giorno_dopo = g + 1
+                if giorno_dopo not in giorni:
+                    continue
+                pm_var = model.NewBoolVar(f"pm_consecutivo_{w}_{g}")
+                model.Add(pm_var >= x[(w, g, "P")] + x[(w, giorno_dopo, "M")] - 1)
+                termini_obiettivo.append(peso_fairness * pm_var)
 
     # ------------------------------------------------------------------
     # Obiettivo finale: minimizza la somma pesata di tutte le penalita' soft

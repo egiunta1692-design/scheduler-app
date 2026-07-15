@@ -215,6 +215,15 @@ conseguenza i turni reali assegnabili quella settimana.
   distribuisce equamente tra le due invece che concentrarsi solo su una,
   e se il fabbisogno varia (es. N=2 contro M=3) il confronto resta
   significativo perche' e' proporzionale, non assoluto
+- **minimizza le sequenze Pomeriggio -> Mattino su giorni consecutivi**
+  per lo stesso lavoratore (attivabile/disattivabile, attivo di default):
+  un turno P seguito da un turno M il giorno dopo lascia un riposo molto
+  piu' corto (P finisce sera tardi, M inizia presto la mattina dopo)
+  rispetto a M -> P (M finisce a meta' giornata, P il giorno dopo inizia
+  solo nel pomeriggio: quasi un giorno intero di margine). Non viene
+  vietato — spesso e' inevitabile per esigenze di copertura, motivo per
+  cui e' un termine soft e non un vincolo hard — ma minimizzato dove
+  possibile, premiando implicitamente M->P rispetto a P->M
 - peso configurabile rispetto alle richieste soft (di default le
   richieste contano di piu' dell'equilibrio del team)
 

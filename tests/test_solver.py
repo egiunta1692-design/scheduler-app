@@ -18,6 +18,7 @@ from engine.models import (
     RegoleContrattuali,
     RichiestaSoft,
     VincoloAdmin,
+    ParametriFairness,
 )
 from engine.sample_data import get_sample_input
 from engine.solver import genera_turni
@@ -679,3 +680,89 @@ def test_niente_notte_prima_di_richiesta_ferie_concessa():
             "La richiesta di ferie di w1 e' stata concessa (giorno 2 libero) "
             "ma w1 ha fatto notte il giorno prima: non dovrebbe essere possibile"
         )
+
+
+# ---------------------------------------------------------------------------
+# Minimizzazione sequenze Pomeriggio -> Mattino consecutive
+# ---------------------------------------------------------------------------
+
+def test_minimizza_pm_evita_quando_possibile():
+    """Con 2 lavoratori intercambiabili e nessun altro vincolo che
+    favorisca uno piuttosto che l'altro, il motore deve evitare che lo
+    STESSO lavoratore faccia Pomeriggio il giorno 1 e Mattino il giorno 2
+    (e' evitabile assegnando i due turni a lavoratori diversi)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_pm",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="P", minimo=1),
+            Fabbisogno(giorno=2, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(minimizza_pm_consecutivo=True),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    for w in ("w1", "w2"):
+        ha_p_giorno1 = any(a.lavoratore_id == w and a.giorno == 1 and a.fascia == "P" for a in risultato.assegnazioni)
+        ha_m_giorno2 = any(a.lavoratore_id == w and a.giorno == 2 and a.fascia == "M" for a in risultato.assegnazioni)
+        assert not (ha_p_giorno1 and ha_m_giorno2), (
+            f"{w} ha fatto P il giorno 1 e M il giorno 2: evitabile "
+            "assegnando i due turni a lavoratori diversi"
+        )
+
+
+def test_minimizza_pm_disattivabile():
+    """Con l'opzione disattivata, il motore non deve piu' preoccuparsi di
+    evitare le sequenze P->M (il test verifica solo che il flag non
+    causi errori e che il problema resti risolvibile)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_pm_off",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="P", minimo=1),
+            Fabbisogno(giorno=2, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(minimizza_pm_consecutivo=False),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+
+def test_minimizza_pm_non_impedisce_soluzione_quando_inevitabile():
+    """Con un solo lavoratore disponibile, la sequenza P->M e' inevitabile
+    per coprire il fabbisogno: essendo un vincolo soft (non hard), il
+    problema deve restare risolvibile anche in questo caso."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_pm_inevitabile",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_contratto=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="P", minimo=1),
+            Fabbisogno(giorno=2, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(minimizza_pm_consecutivo=True),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
+        "Il vincolo e' soft: anche se P->M e' inevitabile con un solo "
+        "lavoratore, il problema deve restare risolvibile"
+    )

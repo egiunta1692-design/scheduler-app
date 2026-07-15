@@ -360,6 +360,7 @@ def _init_state():
         "bilancia_giorni_settimana": demo.parametri_fairness.bilancia_giorni_settimana,
         "bilancia_ore_settimanali": demo.parametri_fairness.bilancia_ore_settimanali,
         "bilancia_copertura_giornaliera": demo.parametri_fairness.bilancia_copertura_giornaliera,
+        "minimizza_pm_consecutivo": demo.parametri_fairness.minimizza_pm_consecutivo,
         "peso_fairness": demo.parametri_fairness.peso_fairness,
     }
 
@@ -559,6 +560,18 @@ with tab_regole:
                 "il motore puo' assegnare piu' persone del minimo in certi giorni. "
                 "Con questa opzione attiva, un eventuale surplus si distribuisce il "
                 "piu' possibile su tutti i giorni invece di concentrarsi su pochi."
+            ),
+        )
+        st.session_state.fairness["minimizza_pm_consecutivo"] = st.checkbox(
+            "Minimizza le sequenze Pomeriggio -> Mattino su giorni consecutivi",
+            value=st.session_state.fairness["minimizza_pm_consecutivo"],
+            help=(
+                "Un turno Pomeriggio seguito da un turno Mattino il giorno dopo "
+                "lascia un riposo molto piu' corto (P finisce sera tardi, M "
+                "inizia presto la mattina dopo) rispetto a Mattino -> Pomeriggio "
+                "(quasi un giorno intero di margine). Non viene vietato — spesso "
+                "e' inevitabile per la copertura — ma minimizzato dove possibile, "
+                "premiando implicitamente M->P rispetto a P->M."
             ),
         )
         st.session_state.fairness["peso_fairness"] = st.slider(
@@ -821,6 +834,7 @@ def _costruisci_input() -> InputTurnazione:
         bilancia_giorni_settimana=st.session_state.fairness["bilancia_giorni_settimana"],
         bilancia_ore_settimanali=st.session_state.fairness["bilancia_ore_settimanali"],
         bilancia_copertura_giornaliera=st.session_state.fairness["bilancia_copertura_giornaliera"],
+        minimizza_pm_consecutivo=st.session_state.fairness["minimizza_pm_consecutivo"],
         peso_fairness=int(st.session_state.fairness["peso_fairness"]),
     )
 
