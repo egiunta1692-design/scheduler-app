@@ -130,8 +130,8 @@ Premi "Genera turni" per vedere:
 - le richieste non soddisfatte
 - **Equilibrio del carico tra lavoratori**: grafico a barre orizzontali
   (lavoratori sull'asse verticale, ore sull'asse orizzontale) con le ore
-  M/P/N/F per lavoratore — le stesse colonne della tabella "Turni per
-  lavoratore" sopra, non piu' il numero di turni come in precedenza
+  M/P/N/F per lavoratore, nell'ordine M-P-N-F — le stesse colonne della
+  tabella "Turni per lavoratore" sopra
 
 ## Cosa fa il motore adesso (completo sui vincoli principali)
 
