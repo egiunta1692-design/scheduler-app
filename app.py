@@ -1,21 +1,35 @@
 """
 Interfaccia Streamlit per il motore di turnazione.
 
-Layout:
-  - Lavoratori: tabella editabile con id/nome/ore contratto
-  - Calendario: tre griglie
-      1. Situazione iniziale (ultimi giorni del mese precedente): serve
-         al motore per applicare correttamente riposo dopo notte e
-         massimo notti consecutive anche a cavallo tra due mesi
-      2. Fabbisogno (righe M/P/N, valori numerici, colonne = giorni del
-         mese selezionato)
-      3. Richieste soft / Vincoli admin per lavoratore (righe = lavoratori,
-         una cella per giorno con un codice breve). Una cella puo'
-         contenere SOLO una richiesta soft OPPURE SOLO un vincolo admin,
-         mai entrambi: la mutua esclusivita' e' garantita dalla struttura
-         stessa della griglia (un valore per cella).
-  - Regole & periodo: anno/mese (i giorni del periodo si calcolano da
-    soli in base al mese), ore per fascia, notti consecutive, fairness
+Layout (schede, in quest'ordine anche nel codice — vedi nota piu' sotto
+su "with tab_regole:"):
+
+  1. Regole & periodo: numero di lavoratori (aggiunge/rimuove righe in
+     "Lavoratori"), anno/mese (i giorni del periodo si calcolano da soli
+     in base al mese), regole contrattuali (notti consecutive, ore per
+     fascia M/P/N, ore ferie giornaliere), parametri di fairness.
+
+  2. Lavoratori: tabella editabile con id/nome/ore contratto/mai notti.
+
+  3. Calendario: due griglie.
+     - Fabbisogno: righe M/P/N, valori numerici, colonne = giorni del
+       periodo (esteso se necessario fino alla domenica di chiusura).
+     - Situazione iniziale + Richieste soft + Vincoli admin: griglia
+       UNICA per lavoratore. Le prime colonne (giorni del mese
+       precedente) registrano i turni gia' effettuati; le colonne del
+       periodo accettano un codice breve per cella che rappresenta o
+       una richiesta soft del lavoratore (ferie/riposo/turno, con
+       priorita') o un vincolo imposto dal coordinatore — mai entrambi
+       sulla stessa cella, mutuamente esclusivi per costruzione. Include
+       anche: esporta/importa CSV, svuota celle in blocco per lavoratore
+       o giorno (con multiselezione e "seleziona tutti").
+
+Dopo "Genera turni": schema turni colorato (con FERIE/RIPOSO distinti),
+indicazione se l'ottimalita' e' stata dimostrata o solo il tempo massimo
+esaurito, copertura effettiva vs fabbisogno, pulsante per ricaricare il
+risultato come vincoli e modificarlo, tabella "Turni per lavoratore"
+(M/P/N/Ferie/ore, per mese e per settimana), richieste non soddisfatte,
+grafico di equilibrio del carico.
 
 Avvio: streamlit run app.py
 """
@@ -109,12 +123,18 @@ LEGENDA_CODICI = (
     "effettuato**: concettualmente e' lo stesso tipo di informazione (un'assegnazione "
     "certa, non negoziabile), solo che li' e' un fatto del passato invece che "
     "un'imposizione per il futuro\n\n"
-    "**Ferie vs riposo**: bloccano entrambe i turni quel giorno, ma la ferie conta ore "
-    "virtuali nel monte ore settimanale (e' comunque tempo retribuito), il riposo no. "
-    "Il motore non permette mai una ferie il giorno subito dopo una notte (o serie di "
-    "notti): quel giorno di stop e' un riposo fisiologico obbligatorio, non e' "
-    "sostituibile da una ferie — anche se inserita per errore, il motore la ignora in "
-    "quel punto specifico e cerca un'altra soluzione.\n\n"
+    "**Ferie vs riposo:**\n"
+    "- entrambe bloccano i turni quel giorno allo stesso modo\n"
+    "- la **ferie** conta ore virtuali nel monte ore settimanale (e' comunque "
+    "tempo retribuito); il **riposo** no\n"
+    "- il motore non permette mai una ferie il giorno subito dopo una notte "
+    "(o serie di notti): quel giorno di stop e' un riposo fisiologico "
+    "obbligatorio, non sostituibile da una ferie\n"
+    "- in pratica: se imposti una ferie su un giorno, il motore blocca "
+    "automaticamente la notte del giorno prima per lo stesso lavoratore e "
+    "cerca di farla coprire da qualcun altro — la ferie resta valida, "
+    "cambia solo chi copre quella notte (se nessun altro puo' coprirla, il "
+    "problema puo' risultare irrisolvibile)\n\n"
     "Una cella puo' contenere solo un codice alla volta: richiesta del lavoratore "
     "e vincolo del coordinatore sono alternativi, mai entrambi sullo stesso giorno.\n\n"
     "**Icone nelle intestazioni delle colonne** (Streamlit non supporta colori di "
@@ -122,10 +142,7 @@ LEGENDA_CODICI = (
     "- 🕓 = giorni del **mese precedente** (situazione iniziale, sola lettura concettuale: "
     "turni gia' avvenuti)\n"
     "- nessuna icona = giorni del **mese selezionato**\n"
-    "- ➡️ = giorni del **mese successivo** (periodo esteso fino alla domenica di chiusura)\n\n"
-    "Sotto la griglia trovi anche un'**anteprima colorata di sola lettura** "
-    "(espandi \"Anteprima colorata\") con veri colori di sfondo per zona — "
-    "utile a colpo d'occhio, ma la modifica dei dati resta nella griglia sopra."
+    "- ➡️ = giorni del **mese successivo** (periodo esteso fino alla domenica di chiusura)"
 )
 
 # Numero MINIMO di giorni finali del mese precedente da mostrare per la
@@ -759,42 +776,6 @@ with tab_calendario:
         },
     )
 
-    # Streamlit non supporta la colorazione di sfondo nelle colonne
-    # EDITABILI di data_editor (limite noto della libreria, confermato
-    # anche in issue aperte sul loro repository). Come compromesso,
-    # mostriamo qui sotto un'anteprima di SOLA LETTURA della stessa
-    # griglia, colorata per zona: la modifica dei dati avviene sempre
-    # nella tabella sopra.
-    with st.expander("Anteprima colorata (sola lettura)", expanded=False):
-        st.caption(
-            "Solo per visualizzazione: per modificare i dati usa la griglia sopra. "
-            "🔵 = mese precedente (situazione iniziale) · bianco = mese selezionato · "
-            "🟠 = mese successivo."
-        )
-
-        etichette = {col: _etichetta_colonna(col) for col in st.session_state.df_calendario.columns}
-        df_anteprima = st.session_state.df_calendario.rename(columns=etichette)
-
-        colonne_passato_lbl = [etichette[c] for c in _colonne_passato()]
-        p_corrente = st.session_state.periodo
-        colonne_estese_lbl = []
-        for c in _colonne_periodo():
-            data_c = data_da_indice_periodo(int(p_corrente["anno"]), int(p_corrente["mese"]), int(c))
-            if data_c.month != int(p_corrente["mese"]) or data_c.year != int(p_corrente["anno"]):
-                colonne_estese_lbl.append(etichette[c])
-
-        styler_anteprima = df_anteprima.style
-        if colonne_passato_lbl:
-            styler_anteprima = styler_anteprima.set_properties(
-                subset=colonne_passato_lbl, **{"background-color": "#D6EAF8"}
-            )
-        if colonne_estese_lbl:
-            styler_anteprima = styler_anteprima.set_properties(
-                subset=colonne_estese_lbl, **{"background-color": "#FDEBD0"}
-            )
-
-        st.dataframe(styler_anteprima, use_container_width=True)
-
 
 # ---------------------------------------------------------------------------
 # Costruzione input e lancio del motore
@@ -993,7 +974,7 @@ if risultato is not None:
         # Segna ferie e riposo con etichette distinte (non piu' genericamente
         # "FERIE" per entrambi), sia per i vincoli admin sia per le
         # richieste soft effettivamente accolte dal motore — prima solo i
-        # vincoli admin venivano etichettati, le richieste soft honoree
+        # vincoli admin venivano etichettati, le richieste soft accolte
         # restavano genericamente vuote.
         if ultimo_input:
             id_non_soddisfatte = {r.richiesta_id for r in risultato.richieste_non_soddisfatte}
@@ -1016,6 +997,12 @@ if risultato is not None:
             return f"background-color: {colore}"
 
         st.subheader("Schema turni")
+        st.caption(
+            "Colori: 🟡 giallo = Mattino · 🔵 blu = Pomeriggio · 🟣 viola = "
+            "Notte · grigio = Ferie · grigio chiarissimo = Riposo esplicito "
+            "(forzato o richiesto) · bianco = nessun turno quel giorno "
+            "(giorno libero senza un riposo esplicito registrato)."
+        )
         griglia_display = griglia.rename(columns={g: _etichetta_giorno(g) for g in griglia.columns})
         try:
             griglia_stilizzata = griglia_display.style.map(_colora)
@@ -1054,8 +1041,12 @@ if risultato is not None:
         st.subheader("Copertura effettiva vs fabbisogno")
         st.caption(
             "Per ogni fascia (riga) e giorno (colonna): turni effettivamente "
-            "assegnati, fabbisogno minimo richiesto, e differenza (surplus "
-            "positivo se il motore ha assegnato piu' persone del minimo)."
+            "assegnati, fabbisogno minimo richiesto, e differenza (scarto). "
+            "Uno scarto positivo (evidenziato in arancione) significa che il "
+            "motore ha assegnato piu' persone del minimo richiesto quel "
+            "giorno — normale, non un errore. Uno scarto negativo non "
+            "dovrebbe mai comparire: la copertura minima e' un vincolo "
+            "sempre rispettato."
         )
 
         conteggio_effettivo = defaultdict(int)
@@ -1100,20 +1091,21 @@ if risultato is not None:
 
         # Insights: turni e ore per lavoratore, per fascia / settimana / mese
         st.subheader("Turni per lavoratore")
-        st.caption(
-            "M / P / N / Ferie / Totale turni / Ore M / Ore P / Ore N / "
-            "Ore F: solo il mese di riferimento selezionato (esclude sia "
-            "la situazione iniziale del mese precedente sia l'eventuale "
-            "sconfinamento nel mese successivo). 'Ferie' conta i giorni di "
-            "ferie (forzati dall'admin o da richiesta soft accolta), non "
-            "e' inclusa nel Totale turni perche' non e' un turno lavorato; "
-            "'Ore F' sono le sue ore virtuali equivalenti. Ore per "
-            "settimana (lun-dom): includono le ore effettivamente lavorate "
-            "PIU' le ore virtuali di ferie (stesso criterio usato dal "
-            "motore per il vincolo di ore settimanali), oltre alla "
-            "situazione iniziale e agli eventuali giorni del mese "
-            "successivo. Ore mese: solo le ore effettivamente lavorate nel "
-            "mese di riferimento (non include le ore virtuali di ferie)."
+        st.markdown(
+            "- **M / P / N / Ferie / Totale turni / Ore M / Ore P / Ore N / Ore F**: "
+            "solo il mese di riferimento (esclude situazione iniziale e "
+            "l'eventuale sconfinamento nel mese successivo)\n"
+            "- **Ferie**: conta i giorni di ferie (forzati dall'admin o da "
+            "richiesta soft accolta); non e' inclusa nel Totale turni "
+            "perche' non e' un turno lavorato — **Ore F** sono le sue ore "
+            "virtuali equivalenti\n"
+            "- **Ore sett.N**: ore effettivamente lavorate PIU' le ore "
+            "virtuali di ferie (stesso criterio del motore per il vincolo "
+            "di ore settimanali), incluse situazione iniziale ed eventuale "
+            "sconfinamento nel mese successivo\n"
+            "- **Ore mese**: solo le ore effettivamente lavorate nel mese "
+            "di riferimento (non include le ore virtuali di ferie, a "
+            "differenza di \"Ore sett.N\")"
         )
 
         lavoratori_ordinati_insights = st.session_state.df_lavoratori["id"].tolist()
@@ -1247,6 +1239,15 @@ if risultato is not None:
         # Richieste non soddisfatte
         if risultato.richieste_non_soddisfatte and ultimo_input:
             st.subheader("Richieste non soddisfatte")
+            st.caption(
+                "Richieste soft (ferie, riposo o turno specifico) che il "
+                "motore non e' riuscito a concedere per rispettare gli "
+                "altri vincoli. Non e' un errore: succede quando troppe "
+                "richieste si sovrappongono sullo stesso giorno/fascia, o "
+                "quando concederle violerebbe un vincolo hard (es. "
+                "copertura minima, ore settimanali). Le richieste con "
+                "priorita' piu' alta vengono sacrificate per ultime."
+            )
             richieste_per_id = {r.id: r for r in ultimo_input.richieste_soft}
             righe = []
             for r in risultato.richieste_non_soddisfatte:
@@ -1261,9 +1262,6 @@ if risultato is not None:
                     })
             st.dataframe(pd.DataFrame(righe), use_container_width=True)
 
-        # Metriche fairness
-        # Metriche fairness
-        # Metriche fairness
         # Metriche fairness
         st.subheader("Equilibrio del carico tra lavoratori")
         st.caption("Ore per fascia (M/P/N) e ore virtuali di ferie (F) per lavoratore, mese di riferimento.")

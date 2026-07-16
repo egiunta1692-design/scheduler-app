@@ -50,7 +50,7 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      piu' bassa quella settimana — confrontare le ore grezze spingerebbe
      un peso alto a "trascinare giu'" anche gli altri lavoratori pur di
      ridurre lo scarto, l'esatto opposto dell'effetto voluto; minimizza
-     infine lo scarto (max - min) del TASSO di surplus di copertura
+     inoltre lo scarto (max - min) del TASSO di surplus di copertura
      (surplus / fabbisogno minimo, non il surplus grezzo), confrontato su
      un'unica scala tra tutte le fasce e i giorni insieme: cosi' un
      eventuale surplus si distribuisce in proporzione al fabbisogno invece
