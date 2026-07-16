@@ -218,8 +218,20 @@ solo 32 ore — il motore lo tiene in considerazione e riduce di
 conseguenza i turni reali assegnabili quella settimana.
 
 **Livello 4 - fairness (soft, priorita' piu' bassa):**
-- minimizza lo scarto (max - min) tra lavoratori sul numero di turni per
-  fascia e sul totale di giorni lavorati
+- minimizza la **somma degli scarti di ciascun lavoratore dalla media del
+  gruppo** sul numero di turni per fascia e sul totale di giorni
+  lavorati — non piu' un semplice max-min (il divario tra chi ne fa di
+  piu' e chi di meno). Il max-min resta fisso indipendentemente da
+  quanti lavoratori sono fuori media: con surplus piccoli andava bene,
+  ma con surplus grandi (es. generati da un minimo ore settimanali alto)
+  restava "piccolo e fisso" mentre altri termini che sommano su
+  giorni/fasce crescevano con la scala del problema, finendo per
+  annegare completamente questo segnale. La somma degli scarti dalla
+  media cresce naturalmente con la scala del problema, restando
+  comparabile agli altri termini. Scelta al posto del confronto tra ogni
+  coppia di lavoratori (sarebbe O(n²): 190 coppie per fascia con
+  20 lavoratori) perche' confrontare ciascuno con la media e' O(n) — 20
+  confronti per fascia — con lo stesso effetto pratico
 - minimizza inoltre lo scarto (max - min) del **tasso di utilizzo della
   capacita' oraria residua, settimana per settimana** (non solo sul
   totale del periodo): bilanciare solo il totale non basta, una singola

@@ -45,26 +45,35 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      cavallo con il mese precedente
 
   4. FAIRNESS (soft, priorita' piu' bassa):
-     minimizza lo scarto (max - min) tra lavoratori sul numero di turni
-     per fascia e sul numero di giorni lavorati totali; minimizza inoltre
-     lo scarto (max - min) del TASSO DI UTILIZZO della capacita' oraria
-     residua, SETTIMANA PER SETTIMANA (non solo sul totale del periodo):
-     confrontiamo il tasso (ore nuove assegnate / capacita' residua quella
-     settimana), non le ore grezze, perche' un lavoratore che ha gia'
-     maturato ore in stato_iniziale ha una capacita' residua legittimamente
-     piu' bassa quella settimana — confrontare le ore grezze spingerebbe
-     un peso alto a "trascinare giu'" anche gli altri lavoratori pur di
-     ridurre lo scarto, l'esatto opposto dell'effetto voluto; minimizza
-     inoltre lo scarto (max - min) del TASSO di surplus di copertura
-     (surplus / fabbisogno minimo, non il surplus grezzo), confrontato su
-     un'unica scala tra tutte le fasce e i giorni insieme: cosi' un
-     eventuale surplus si distribuisce in proporzione al fabbisogno invece
-     di concentrarsi su una fascia o un giorno specifico, anche quando il
-     fabbisogno non e' uguale ovunque; minimizza infine (se attivo) le
-     sequenze Pomeriggio->Mattino su giorni consecutivi per lo stesso
-     lavoratore, che lasciano un riposo piu' corto rispetto a
-     Mattino->Pomeriggio — non e' vietato (spesso inevitabile per la
-     copertura), solo penalizzato, premiando implicitamente M->P su P->M
+     minimizza la SOMMA degli scarti di ciascun lavoratore dalla MEDIA del
+     gruppo, sul numero di turni per fascia e sul numero di giorni
+     lavorati totali (non piu' un semplice max-min tra il lavoratore col
+     conteggio piu' alto e quello piu' basso: quella misura restava fissa
+     indipendentemente da quanti lavoratori fossero fuori media, e con
+     volumi di surplus grandi finiva annegata da altri termini "a somma"
+     sotto — la somma degli scarti dalla media invece cresce
+     naturalmente con la scala del problema, restando comparabile agli
+     altri); minimizza inoltre lo scarto (max - min) del TASSO DI
+     UTILIZZO della capacita' oraria residua, SETTIMANA PER SETTIMANA
+     (non solo sul totale del periodo): confrontiamo il tasso (ore nuove
+     assegnate / capacita' residua quella settimana), non le ore grezze,
+     perche' un lavoratore che ha gia' maturato ore in stato_iniziale ha
+     una capacita' residua legittimamente piu' bassa quella settimana —
+     confrontare le ore grezze spingerebbe un peso alto a "trascinare
+     giu'" anche gli altri lavoratori pur di ridurre lo scarto, l'esatto
+     opposto dell'effetto voluto; minimizza inoltre lo scarto (max - min)
+     del TASSO di surplus di copertura (surplus / fabbisogno minimo, non
+     il surplus grezzo), confrontato su un'unica scala tra tutte le
+     fasce e i giorni insieme: cosi' un eventuale surplus si distribuisce
+     in proporzione al fabbisogno invece di concentrarsi su una fascia o
+     un giorno specifico, anche quando il fabbisogno non e' uguale
+     ovunque; minimizza anche (sommando su ogni singolo giorno, non solo
+     il caso peggiore) lo scarto tra le fasce presenti in ciascun
+     giorno; minimizza infine (se attivo) le sequenze Pomeriggio->Mattino
+     su giorni consecutivi per lo stesso lavoratore, che lasciano un
+     riposo piu' corto rispetto a Mattino->Pomeriggio — non e' vietato
+     (spesso inevitabile per la copertura), solo penalizzato, premiando
+     implicitamente M->P su P->M
 
 Ogni livello e' testato in tests/test_solver.py.
 """
@@ -390,6 +399,25 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     FATTORE_RINORMALIZZAZIONE = 10  # 1 unita' finale = 10 punti percentuali di scarto
 
     if dati.parametri_fairness.bilancia_fasce:
+        # RISTRUTTURATO: prima confrontava solo il lavoratore col piu' alto
+        # conteggio e quello col piu' basso (max-min), un singolo numero che
+        # non cresce con quanti lavoratori sono fuori media ne' con quanto
+        # lo sono. Con volumi di surplus piccoli andava bene, ma con un
+        # volume grande (es. generato da un minimo ore settimanali alto)
+        # questo termine restava "piccolo e fisso" mentre altri termini
+        # proporzionali (che SOMMANO su giorni/fasce) crescevano con la
+        # scala del problema, finendo per annegare completamente il
+        # segnale di bilancia_fasce nell'obiettivo complessivo.
+        #
+        # Ora sommiamo lo scarto di OGNI lavoratore dalla MEDIA del gruppo
+        # (invece di confrontare solo il peggiore con il migliore): cosi'
+        # il termine cresce naturalmente con quanti lavoratori sono fuori
+        # media, restando comparabile in scala agli altri termini
+        # proporzionali anche quando il volume di surplus aumenta.
+        # Scartata l'alternativa "confronta ogni coppia di lavoratori"
+        # (O(n^2): 190 coppie per fascia con 20 lavoratori) a favore di
+        # "confronta ognuno con la media" (O(n): 20 confronti per fascia),
+        # molto piu' efficiente e con lo stesso effetto pratico.
         for f in fasce:
             conteggi = []
             for w in lavoratori_ids:
@@ -397,30 +425,39 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 model.Add(c == sum(x[(w, g, f)] for g in giorni))
                 conteggi.append(c)
 
-            max_c = model.NewIntVar(0, n_giorni, f"max_{f}")
-            min_c = model.NewIntVar(0, n_giorni, f"min_{f}")
-            model.AddMaxEquality(max_c, conteggi)
-            model.AddMinEquality(min_c, conteggi)
+            totale_f = model.NewIntVar(0, n_lavoratori * n_giorni, f"totale_conteggi_{f}")
+            model.Add(totale_f == sum(conteggi))
+            media_f = model.NewIntVar(0, n_giorni, f"media_conteggi_{f}")
+            model.AddDivisionEquality(media_f, totale_f, n_lavoratori)
 
-            scarto = model.NewIntVar(0, n_giorni, f"scarto_{f}")
-            model.Add(scarto == max_c - min_c)
-            termini_obiettivo.append(dati.parametri_fairness.peso_bilancia_fasce * scarto)
+            for w, c in zip(lavoratori_ids, conteggi):
+                scarto_media = model.NewIntVar(0, n_giorni, f"scarto_media_{w}_{f}")
+                model.Add(scarto_media >= c - media_f)
+                model.Add(scarto_media >= media_f - c)
+                termini_obiettivo.append(dati.parametri_fairness.peso_bilancia_fasce * scarto_media)
 
     if dati.parametri_fairness.bilancia_giorni_settimana:
+        # Stessa ristrutturazione di bilancia_fasce sopra, stesso motivo:
+        # somma degli scarti dalla media invece di max-min, per scalare
+        # correttamente col volume del problema.
         conteggi_giorni = []
         for w in lavoratori_ids:
             c = model.NewIntVar(0, n_giorni, f"giorni_lavorati_{w}")
             model.Add(c == sum(x[(w, g, f)] for g in giorni for f in fasce))
             conteggi_giorni.append(c)
 
-        max_g = model.NewIntVar(0, n_giorni, "max_giorni")
-        min_g = model.NewIntVar(0, n_giorni, "min_giorni")
-        model.AddMaxEquality(max_g, conteggi_giorni)
-        model.AddMinEquality(min_g, conteggi_giorni)
+        totale_giorni = model.NewIntVar(0, n_lavoratori * n_giorni, "totale_giorni_lavorati")
+        model.Add(totale_giorni == sum(conteggi_giorni))
+        media_giorni = model.NewIntVar(0, n_giorni, "media_giorni_lavorati")
+        model.AddDivisionEquality(media_giorni, totale_giorni, n_lavoratori)
 
-        scarto_giorni = model.NewIntVar(0, n_giorni, "scarto_giorni")
-        model.Add(scarto_giorni == max_g - min_g)
-        termini_obiettivo.append(dati.parametri_fairness.peso_bilancia_giorni_settimana * scarto_giorni)
+        for w, c in zip(lavoratori_ids, conteggi_giorni):
+            scarto_media_giorni = model.NewIntVar(0, n_giorni, f"scarto_media_giorni_{w}")
+            model.Add(scarto_media_giorni >= c - media_giorni)
+            model.Add(scarto_media_giorni >= media_giorni - c)
+            termini_obiettivo.append(
+                dati.parametri_fairness.peso_bilancia_giorni_settimana * scarto_media_giorni
+            )
 
     if dati.parametri_fairness.bilancia_ore_settimanali:
         # bilancia_giorni_settimana bilancia il TOTALE sull'intero periodo:
@@ -568,9 +605,18 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         # Qui invece confrontiamo le fasce PRESENTI OGNI SINGOLO GIORNO
         # (proporzionalmente al loro fabbisogno di quel giorno, cosi'
         # resta corretto anche se M/P/N hanno fabbisogni diversi tra loro
-        # o le ore per fascia cambiano) e sommiamo lo scarto su tutti i
-        # giorni, non solo il peggiore — cosi' ogni giorno deve essere
-        # ragionevole, non solo evitare il caso piu' estremo.
+        # o le ore per fascia cambiano).
+        #
+        # ATTENZIONE (bug corretto qui): la prima versione SOMMAVA lo
+        # scarto di ogni giorno, rendendo il contributo di questo termine
+        # proporzionale al numero di giorni del periodo — su un mese di
+        # 33 giorni, la somma finiva per pesare fino a ~7 volte piu' del
+        # massimo possibile di bilancia_fasce, schiacciando l'equita' tra
+        # lavoratori (osservato: un lavoratore con 15 turni Mattina,
+        # un altro con 2). Usiamo la MEDIA invece della somma: cosi' la
+        # magnitudo resta comparabile agli altri termini indipendentemente
+        # da quanti giorni ha il periodo.
+        scarti_giorni = []
         for g in giorni:
             tassi_giorno = []
             for f in fasce:
@@ -594,13 +640,23 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
 
                 scarto_g = model.NewIntVar(0, n_lavoratori * SCALE, f"scarto_tasso_giorno_{g}")
                 model.Add(scarto_g == max_g - min_g)
+                scarti_giorni.append(scarto_g)
 
-                limite_norm_g = (n_lavoratori * SCALE) // FATTORE_RINORMALIZZAZIONE
-                scarto_g_norm = model.NewIntVar(0, limite_norm_g, f"scarto_tasso_giorno_norm_{g}")
-                model.AddDivisionEquality(scarto_g_norm, scarto_g, FATTORE_RINORMALIZZAZIONE)
-                termini_obiettivo.append(
-                    dati.parametri_fairness.peso_bilancia_proporzione_giornaliera * scarto_g_norm
-                )
+        if scarti_giorni:
+            somma_scarti = model.NewIntVar(
+                0, len(scarti_giorni) * n_lavoratori * SCALE, "somma_scarti_giorni"
+            )
+            model.Add(somma_scarti == sum(scarti_giorni))
+
+            media_scarto = model.NewIntVar(0, n_lavoratori * SCALE, "media_scarto_giorni")
+            model.AddDivisionEquality(media_scarto, somma_scarti, len(scarti_giorni))
+
+            limite_norm = (n_lavoratori * SCALE) // FATTORE_RINORMALIZZAZIONE
+            media_scarto_norm = model.NewIntVar(0, limite_norm, "media_scarto_giorni_norm")
+            model.AddDivisionEquality(media_scarto_norm, media_scarto, FATTORE_RINORMALIZZAZIONE)
+            termini_obiettivo.append(
+                dati.parametri_fairness.peso_bilancia_proporzione_giornaliera * media_scarto_norm
+            )
 
     if dati.parametri_fairness.minimizza_pm_consecutivo and "P" in fasce and "M" in fasce:
         # Una sequenza Pomeriggio (giorno G) -> Mattino (giorno G+1) lascia

@@ -35,7 +35,7 @@ MESE_DEMO = 7  # luglio 2026: finisce venerdi' 31 -> periodo esteso a domenica 2
 
 def get_sample_input() -> InputTurnazione:
     lavoratori = [
-        Lavoratore(id=f"w{i+1}", nome=nome, ore_settimanali_min=36, ore_settimanali_max=36)
+        Lavoratore(id=f"w{i+1}", nome=nome, ore_settimanali_min=32, ore_settimanali_max=40)
         for i, nome in enumerate(NOMI_LAVORATORI)
     ]
 

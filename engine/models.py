@@ -91,8 +91,8 @@ class ParametriFairness:
     # condiviso unico penalizzava tutti i vincoli nella stessa proporzione,
     # impedendo di dare piu' importanza a uno specifico senza alterare
     # anche gli altri.
-    peso_bilancia_fasce: int = 5
-    peso_bilancia_giorni_settimana: int = 3
+    peso_bilancia_fasce: int = 7
+    peso_bilancia_giorni_settimana: int = 4
     peso_bilancia_ore_settimanali: int = 4
     peso_bilancia_copertura_giornaliera: int = 7
     peso_minimizza_pm_consecutivo: int = 2

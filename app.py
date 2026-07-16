@@ -106,16 +106,16 @@ PRIORITA_LABEL = {1: "bassa", 2: "media", 3: "alta", 4: "molto alta"}
 # prevalere su qualunque combinazione di fairness.
 PRESET_FAIRNESS = {
     "Equilibrio reparto (consigliato)": {
-        "peso_bilancia_fasce": 5,
-        "peso_bilancia_giorni_settimana": 3,
+        "peso_bilancia_fasce": 7,
+        "peso_bilancia_giorni_settimana": 4,
         "peso_bilancia_ore_settimanali": 4,
         "peso_bilancia_copertura_giornaliera": 7,
         "peso_minimizza_pm_consecutivo": 2,
         "peso_bilancia_proporzione_giornaliera": 6,
     },
     "Benessere lavoratori": {
-        "peso_bilancia_fasce": 3,
-        "peso_bilancia_giorni_settimana": 3,
+        "peso_bilancia_fasce": 4,
+        "peso_bilancia_giorni_settimana": 4,
         "peso_bilancia_ore_settimanali": 6,
         "peso_bilancia_copertura_giornaliera": 3,
         "peso_minimizza_pm_consecutivo": 6,
@@ -482,8 +482,8 @@ def _sincronizza_numero_lavoratori(n_target: int):
             nuove_righe.append({
                 "id": f"w{indice_persona}",
                 "nome": f"Nome{indice_persona} Cognome{indice_persona}",
-                "ore_settimanali_min": 36,
-                "ore_settimanali_max": 36,
+                "ore_settimanali_min": 32,
+                "ore_settimanali_max": 40,
                 "mai_notti": False,
             })
         st.session_state.df_lavoratori = pd.concat(
