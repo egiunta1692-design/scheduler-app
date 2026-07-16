@@ -111,6 +111,7 @@ PRESET_FAIRNESS = {
         "peso_bilancia_ore_settimanali": 4,
         "peso_bilancia_copertura_giornaliera": 7,
         "peso_minimizza_pm_consecutivo": 2,
+        "peso_bilancia_proporzione_giornaliera": 6,
     },
     "Benessere lavoratori": {
         "peso_bilancia_fasce": 3,
@@ -118,6 +119,7 @@ PRESET_FAIRNESS = {
         "peso_bilancia_ore_settimanali": 6,
         "peso_bilancia_copertura_giornaliera": 3,
         "peso_minimizza_pm_consecutivo": 6,
+        "peso_bilancia_proporzione_giornaliera": 4,
     },
     "Leggero": {
         "peso_bilancia_fasce": 1,
@@ -125,6 +127,7 @@ PRESET_FAIRNESS = {
         "peso_bilancia_ore_settimanali": 1,
         "peso_bilancia_copertura_giornaliera": 1,
         "peso_minimizza_pm_consecutivo": 1,
+        "peso_bilancia_proporzione_giornaliera": 1,
     },
 }
 CHIAVI_PESI_FAIRNESS = list(PRESET_FAIRNESS["Equilibrio reparto (consigliato)"].keys())
@@ -411,6 +414,7 @@ def _init_state():
         "bilancia_ore_settimanali": demo.parametri_fairness.bilancia_ore_settimanali,
         "bilancia_copertura_giornaliera": demo.parametri_fairness.bilancia_copertura_giornaliera,
         "minimizza_pm_consecutivo": demo.parametri_fairness.minimizza_pm_consecutivo,
+        "bilancia_proporzione_giornaliera": demo.parametri_fairness.bilancia_proporzione_giornaliera,
     }
     # Pesi come chiavi dirette di session_state (non dentro il dizionario
     # sopra) cosi' il preset puo' scriverle direttamente e i relativi
@@ -632,6 +636,22 @@ with tab_regole:
                 "premiando implicitamente M->P rispetto a P->M."
             ),
         )
+        st.session_state.fairness["bilancia_proporzione_giornaliera"] = st.checkbox(
+            "Bilancia il surplus tra fasce, giorno per giorno",
+            value=st.session_state.fairness["bilancia_proporzione_giornaliera"],
+            help=(
+                "'Spalma il surplus di copertura' (sopra) evita solo il caso "
+                "peggiore in assoluto su tutto il mese: puo' lasciare che "
+                "molti singoli giorni abbiano comunque M/P/N sbilanciati tra "
+                "loro (es. un giorno con 8 Mattina e 5 Pomeriggio, pur avendo "
+                "lo stesso fabbisogno) senza che questo emerga come 'il "
+                "peggiore'. Questa opzione confronta invece le fasce "
+                "PRESENTI OGNI SINGOLO GIORNO (proporzionalmente al loro "
+                "fabbisogno) e somma lo scarto su tutti i giorni, non solo "
+                "il caso peggiore — cosi' ogni giorno deve essere "
+                "ragionevole, non solo il mese nel complesso."
+            ),
+        )
 
         st.divider()
 
@@ -689,6 +709,17 @@ with tab_regole:
             st.slider(
                 "Peso: minimizza sequenze P->M", min_value=1, max_value=10,
                 key="peso_minimizza_pm_consecutivo",
+            )
+            st.slider(
+                "Peso: bilancia surplus tra fasce, giorno per giorno", min_value=1, max_value=10,
+                key="peso_bilancia_proporzione_giornaliera",
+                help=(
+                    "Confronta le fasce presenti ogni singolo giorno "
+                    "(proporzionalmente al fabbisogno di quel giorno) e "
+                    "somma lo scarto su tutti i giorni — a differenza di "
+                    "'spalma surplus copertura', che guarda solo al caso "
+                    "peggiore in assoluto su tutto il mese."
+                ),
             )
 
 with tab_lavoratori:
@@ -969,11 +1000,13 @@ def _costruisci_input() -> InputTurnazione:
         bilancia_ore_settimanali=st.session_state.fairness["bilancia_ore_settimanali"],
         bilancia_copertura_giornaliera=st.session_state.fairness["bilancia_copertura_giornaliera"],
         minimizza_pm_consecutivo=st.session_state.fairness["minimizza_pm_consecutivo"],
+        bilancia_proporzione_giornaliera=st.session_state.fairness["bilancia_proporzione_giornaliera"],
         peso_bilancia_fasce=int(st.session_state.peso_bilancia_fasce),
         peso_bilancia_giorni_settimana=int(st.session_state.peso_bilancia_giorni_settimana),
         peso_bilancia_ore_settimanali=int(st.session_state.peso_bilancia_ore_settimanali),
         peso_bilancia_copertura_giornaliera=int(st.session_state.peso_bilancia_copertura_giornaliera),
         peso_minimizza_pm_consecutivo=int(st.session_state.peso_minimizza_pm_consecutivo),
+        peso_bilancia_proporzione_giornaliera=int(st.session_state.peso_bilancia_proporzione_giornaliera),
     )
 
     return InputTurnazione(

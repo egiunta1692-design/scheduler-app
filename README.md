@@ -229,7 +229,20 @@ conseguenza i turni reali assegnabili quella settimana.
   cosi' se M e P hanno lo stesso fabbisogno (es. 3 e 3) il surplus si
   distribuisce equamente tra le due invece che concentrarsi solo su una,
   e se il fabbisogno varia (es. N=2 contro M=3) il confronto resta
-  significativo perche' e' proporzionale, non assoluto
+  significativo perche' e' proporzionale, non assoluto. **Limite di
+  questo termine**: minimizza solo il caso peggiore in assoluto su tutto
+  il mese, quindi puo' lasciare che molti singoli giorni restino
+  comunque sbilanciati (es. un giorno con 8 Mattina e 5 Pomeriggio) senza
+  che questo emerga come "il peggiore del mese" — vedi il termine
+  successivo per il fix mirato a questo
+- **bilancia il surplus tra fasce, giorno per giorno**
+  (`bilancia_proporzione_giornaliera`): a differenza del termine sopra,
+  confronta le fasce presenti in OGNI singolo giorno (proporzionalmente
+  al fabbisogno di quel giorno) e SOMMA lo scarto su tutti i giorni, non
+  solo il caso peggiore — cosi' ogni giorno deve essere ragionevole, non
+  solo il mese nel complesso. Include tutte le fasce (anche N, non solo
+  M/P), cosi' il meccanismo resta corretto anche se in futuro le ore per
+  fascia cambiano o serve organizzativamente un surplus notturno
 - **minimizza le sequenze Pomeriggio -> Mattino su giorni consecutivi**
   per lo stesso lavoratore (attivabile/disattivabile, attivo di default):
   un turno P seguito da un turno M il giorno dopo lascia un riposo molto
@@ -239,18 +252,19 @@ conseguenza i turni reali assegnabili quella settimana.
   vietato — spesso e' inevitabile per esigenze di copertura, motivo per
   cui e' un termine soft e non un vincolo hard — ma minimizzato dove
   possibile, premiando implicitamente M->P rispetto a P->M
-- **ciascuno dei 5 vincoli soft sopra ha un peso individuale**
+- **ciascuno dei 6 vincoli soft sopra ha un peso individuale**
   (`peso_bilancia_fasce`, `peso_bilancia_giorni_settimana`,
   `peso_bilancia_ore_settimanali`, `peso_bilancia_copertura_giornaliera`,
-  `peso_minimizza_pm_consecutivo`), non piu' un unico peso condiviso —
-  un peso condiviso penalizzava tutti i vincoli nella stessa proporzione,
-  impedendo di dare piu' importanza a uno specifico senza alterare anche
-  gli altri. Tre preset di partenza disponibili in UI (poi modificabili
-  singolarmente):
+  `peso_minimizza_pm_consecutivo`, `peso_bilancia_proporzione_giornaliera`),
+  non piu' un unico peso condiviso — un peso condiviso penalizzava tutti
+  i vincoli nella stessa proporzione, impedendo di dare piu' importanza a
+  uno specifico senza alterare anche gli altri. Tre preset di partenza
+  disponibili in UI (poi modificabili singolarmente):
   - **Equilibrio reparto** (consigliato, default): privilegia il
-    bilanciamento del surplus di copertura (7) tenendo basso l'evitamento
-    P->M (2), utile quando fasce con lo stesso fabbisogno (es. M e P)
-    rischiano di finire sbilanciate tra loro
+    bilanciamento del surplus per singolo giorno (6) e sul complesso del
+    mese (7), tenendo basso l'evitamento P->M (2), utile quando fasce con
+    lo stesso fabbisogno (es. M e P) rischiano di finire sbilanciate tra
+    loro sia sul totale mensile sia giorno per giorno
   - **Benessere lavoratori**: privilegia il riposo fisiologico
     (minimizza P->M a 6) e il bilanciamento ore settimanali (6),
     accettando un po' piu' di squilibrio tra fasce pur di proteggere

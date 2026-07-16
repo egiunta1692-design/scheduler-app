@@ -818,3 +818,59 @@ def test_peso_bilancia_copertura_ha_effetto_misurabile():
         f"minore di quello con peso basso: basso={scarto_basso:.2f}, "
         f"alto={scarto_alto:.2f}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Nuovo vincolo: bilancia_proporzione_giornaliera (scarto per singolo giorno)
+# ---------------------------------------------------------------------------
+
+def test_bilancia_proporzione_giornaliera_riduce_scarti_per_giorno():
+    """A differenza di bilancia_copertura_giornaliera (che minimizza solo
+    il caso peggiore dell'intero mese), bilancia_proporzione_giornaliera
+    somma lo scarto di OGNI singolo giorno: verifichiamo che con questo
+    vincolo attivo, il massimo scarto giornaliero tra M e P (che hanno lo
+    stesso fabbisogno nel sample) resti contenuto su tutti i giorni, non
+    solo in media."""
+    dati = get_sample_input()
+    dati.parametri_fairness.bilancia_proporzione_giornaliera = True
+    dati.parametri_fairness.peso_bilancia_proporzione_giornaliera = 8
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    minimo = {(f.giorno, f.fascia): f.minimo for f in dati.fabbisogno}
+    conteggio = defaultdict(int)
+    for a in risultato.assegnazioni:
+        conteggio[(a.giorno, a.fascia)] += 1
+
+    giorni = list(range(dati.periodo.giorno_inizio, dati.periodo.giorno_fine + 1))
+    scarti_giornalieri = []
+    for g in giorni:
+        m_min = minimo.get((g, "M"), 0)
+        p_min = minimo.get((g, "P"), 0)
+        if m_min > 0 and p_min > 0:
+            tasso_m = (conteggio.get((g, "M"), 0) - m_min) / m_min
+            tasso_p = (conteggio.get((g, "P"), 0) - p_min) / p_min
+            scarti_giornalieri.append(abs(tasso_m - tasso_p))
+
+    # Soglia larga apposta (controllo di sanita'): senza questo vincolo
+    # potevano capitare giorni con scarti anche di 1.5-2.0 (es. 8M/5P su
+    # fabbisogno 3+3, ~166 punti percentuali di differenza); con il
+    # vincolo attivo e un peso significativo, nessun giorno dovrebbe
+    # avvicinarsi a quell'estremo.
+    assert max(scarti_giornalieri) <= 1.0, (
+        f"Scarto giornaliero M/P troppo alto in almeno un giorno: "
+        f"{max(scarti_giornalieri):.2f}"
+    )
+
+
+def test_bilancia_proporzione_giornaliera_funziona_anche_senza_gli_altri():
+    """Verifica che il nuovo vincolo non dipenda da variabili definite
+    solo dentro bilancia_copertura_giornaliera: deve funzionare anche se
+    quest'ultimo e' disattivato (bug di scope da evitare)."""
+    dati = get_sample_input()
+    dati.parametri_fairness.bilancia_copertura_giornaliera = False
+    dati.parametri_fairness.bilancia_proporzione_giornaliera = True
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")

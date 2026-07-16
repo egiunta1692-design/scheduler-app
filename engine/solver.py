@@ -364,6 +364,18 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     # ==================================================================
     n_giorni = len(giorni)
 
+    # Variabili condivise tra i termini "proporzionali" sotto
+    # (bilancia_copertura_giornaliera e bilancia_proporzione_giornaliera):
+    # definite qui, fuori dai singoli blocchi "if", cosi' sono disponibili
+    # indipendentemente da quale dei due toggle sia effettivamente attivo
+    # (evita un errore se uno e' disattivato ma l'altro no).
+    minimo_per_giorno_fascia = {
+        (fab.giorno, fab.fascia): fab.minimo for fab in dati.fabbisogno
+    }
+    n_lavoratori = len(lavoratori_ids)
+    SCALE = 100
+    FATTORE_RINORMALIZZAZIONE = 10  # 1 unita' finale = 10 punti percentuali di scarto
+
     if dati.parametri_fairness.bilancia_fasce:
         for f in fasce:
             conteggi = []
@@ -489,13 +501,9 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         # 0), ma dividere di nuovo per lo STESSO SCALE=100 alla fine
         # schiaccia quasi tutto a 0-2 (bug corretto qui sotto: usiamo un
         # fattore di rinormalizzazione molto piu' piccolo, che preserva il
-        # segnale invece di annullarlo quasi del tutto).
-        minimo_per_giorno_fascia = {
-            (fab.giorno, fab.fascia): fab.minimo for fab in dati.fabbisogno
-        }
-        n_lavoratori = len(lavoratori_ids)
-        SCALE = 100
-        FATTORE_RINORMALIZZAZIONE = 10  # 1 unita' finale = 10 punti percentuali di scarto
+        # segnale invece di annullarlo quasi del tutto). Le variabili
+        # condivise (minimo_per_giorno_fascia, n_lavoratori, SCALE,
+        # FATTORE_RINORMALIZZAZIONE) sono definite all'inizio del Livello 4.
 
         tassi_surplus = []
         for f in fasce:
@@ -532,6 +540,54 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             termini_obiettivo.append(
                 dati.parametri_fairness.peso_bilancia_copertura_giornaliera * scarto_tasso_normalizzato
             )
+
+    if dati.parametri_fairness.bilancia_proporzione_giornaliera:
+        # bilancia_copertura_giornaliera (sopra) minimizza lo scarto
+        # PEGGIORE in tutto il mucchio di (giorno,fascia): puo' benissimo
+        # succedere che il "peggior scarto assoluto" sia tra due giorni
+        # completamente diversi, lasciando che TANTI singoli giorni
+        # abbiano comunque M/P/N sbilanciati tra loro senza che questo
+        # emerga come il caso peggiore in assoluto (osservato in pratica:
+        # M e P bilanciati sul totale mensile, ma un giorno con 8M/5P e
+        # un altro con 4M/9P — nessuno dei due e' "il peggiore assoluto"
+        # del mese, quindi il vincolo sopra non li corregge).
+        #
+        # Qui invece confrontiamo le fasce PRESENTI OGNI SINGOLO GIORNO
+        # (proporzionalmente al loro fabbisogno di quel giorno, cosi'
+        # resta corretto anche se M/P/N hanno fabbisogni diversi tra loro
+        # o le ore per fascia cambiano) e sommiamo lo scarto su tutti i
+        # giorni, non solo il peggiore — cosi' ogni giorno deve essere
+        # ragionevole, non solo evitare il caso piu' estremo.
+        for g in giorni:
+            tassi_giorno = []
+            for f in fasce:
+                minimo_gf = minimo_per_giorno_fascia.get((g, f), 0)
+                if minimo_gf <= 0:
+                    continue
+                count_gf = model.NewIntVar(0, n_lavoratori, f"copertura_giorno_{f}_{g}")
+                model.Add(count_gf == sum(x[(w, g, f)] for w in lavoratori_ids))
+                surplus_gf = model.NewIntVar(0, n_lavoratori, f"surplus_giorno_{f}_{g}")
+                model.Add(surplus_gf == count_gf - minimo_gf)
+
+                tasso_gf = model.NewIntVar(0, n_lavoratori * SCALE, f"tasso_giorno_{f}_{g}")
+                model.AddDivisionEquality(tasso_gf, surplus_gf * SCALE, minimo_gf)
+                tassi_giorno.append(tasso_gf)
+
+            if len(tassi_giorno) >= 2:
+                max_g = model.NewIntVar(0, n_lavoratori * SCALE, f"max_tasso_giorno_{g}")
+                min_g = model.NewIntVar(0, n_lavoratori * SCALE, f"min_tasso_giorno_{g}")
+                model.AddMaxEquality(max_g, tassi_giorno)
+                model.AddMinEquality(min_g, tassi_giorno)
+
+                scarto_g = model.NewIntVar(0, n_lavoratori * SCALE, f"scarto_tasso_giorno_{g}")
+                model.Add(scarto_g == max_g - min_g)
+
+                limite_norm_g = (n_lavoratori * SCALE) // FATTORE_RINORMALIZZAZIONE
+                scarto_g_norm = model.NewIntVar(0, limite_norm_g, f"scarto_tasso_giorno_norm_{g}")
+                model.AddDivisionEquality(scarto_g_norm, scarto_g, FATTORE_RINORMALIZZAZIONE)
+                termini_obiettivo.append(
+                    dati.parametri_fairness.peso_bilancia_proporzione_giornaliera * scarto_g_norm
+                )
 
     if dati.parametri_fairness.minimizza_pm_consecutivo and "P" in fasce and "M" in fasce:
         # Una sequenza Pomeriggio (giorno G) -> Mattino (giorno G+1) lascia
