@@ -118,16 +118,16 @@ def test_riposo_rispettato_a_cavallo_con_mese_precedente():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=7),
         lavoratori=[
-            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
-            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
-            Lavoratore(id="w3", nome="Test Tre", ore_settimanali_contratto=36),
-            Lavoratore(id="w4", nome="Test Quattro", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w3", nome="Test Tre", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w4", nome="Test Quattro", ore_settimanali_min=36, ore_settimanali_max=36),
             # Quinto lavoratore aggiunto per mantenere margine di capacita':
             # w1 ha 8 ore gia' "consumate" nella settimana a cavallo (notte
             # del 30/06) e con soli 4 lavoratori la capacita' settimanale
             # coinciderebbe esattamente con la domanda, rendendo il test
             # troppo fragile.
-            Lavoratore(id="w5", nome="Test Cinque", ore_settimanali_contratto=36),
+            Lavoratore(id="w5", nome="Test Cinque", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=g, fascia=f, minimo=1)
@@ -160,9 +160,9 @@ def test_ore_pregresse_stato_iniziale_conteggiate_nella_settimana():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=2, giorno_inizio=1, giorno_fine=1),
         lavoratori=[
-            Lavoratore(id="w1", nome="Test Sature", ore_settimanali_contratto=36),
-            Lavoratore(id="w2", nome="Test Backup 1", ore_settimanali_contratto=36),
-            Lavoratore(id="w3", nome="Test Backup 2", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Test Sature", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Test Backup 1", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w3", nome="Test Backup 2", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="M", minimo=1),
@@ -212,7 +212,7 @@ def test_max_ore_settimanali_rispettato():
 
     lavoratori_per_id = {l.id: l for l in dati.lavoratori}
     for (w, _settimana), ore in ore_per_settimana.items():
-        max_ore = lavoratori_per_id[w].ore_settimanali_contratto
+        max_ore = lavoratori_per_id[w].ore_settimanali_max
         assert ore <= max_ore
 
 
@@ -260,7 +260,7 @@ def test_richieste_non_soddisfatte_tracciate_in_output():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=1),
         lavoratori=[
-            Lavoratore(id="w1", nome="Unico Lavoratore", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Unico Lavoratore", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="M", minimo=1),
@@ -413,7 +413,7 @@ def test_motore_gestisce_periodo_esteso_nel_mese_successivo():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=giorno_fine),
         lavoratori=[
-            Lavoratore(id=f"w{i}", nome=f"Test {i}", ore_settimanali_contratto=36)
+            Lavoratore(id=f"w{i}", nome=f"Test {i}", ore_settimanali_min=36, ore_settimanali_max=36)
             for i in range(1, 9)
         ],
         fabbisogno=[
@@ -434,7 +434,7 @@ def test_motore_gestisce_periodo_esteso_nel_mese_successivo():
 
 
 # ---------------------------------------------------------------------------
-# Vincoli personali per-lavoratore: mai_notti e ore_settimanali_contratto
+# Vincoli personali per-lavoratore: mai_notti e ore_settimanali_min/max
 # ---------------------------------------------------------------------------
 
 def test_mai_notti_rispettato():
@@ -447,12 +447,12 @@ def test_mai_notti_rispettato():
         periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=7),
         lavoratori=[
             Lavoratore(
-                id="w1", nome="Mai Notti", ore_settimanali_contratto=36,
+                id="w1", nome="Mai Notti", ore_settimanali_min=36, ore_settimanali_max=36,
                 vincoli_personali=VincoliPersonali(mai_notti=True),
             ),
-            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
-            Lavoratore(id="w3", nome="Test Tre", ore_settimanali_contratto=36),
-            Lavoratore(id="w4", nome="Test Quattro", ore_settimanali_contratto=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w3", nome="Test Tre", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w4", nome="Test Quattro", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=g, fascia=f, minimo=1)
@@ -469,7 +469,7 @@ def test_mai_notti_rispettato():
 
 
 def test_ore_settimanali_specifiche_per_lavoratore():
-    """Due lavoratori con ore_settimanali_contratto diverse (0 e 36) sullo
+    """Due lavoratori con ore_settimanali_min/max diverse (0 e 36) sullo
     stesso giorno: quello con 0 ore non deve MAI lavorare (verifica che il
     parametro sia rispettato per singolo lavoratore, senza fallback
     silenzioso su un default globale quando il valore e' 0)."""
@@ -478,8 +478,8 @@ def test_ore_settimanali_specifiche_per_lavoratore():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=1),
         lavoratori=[
-            Lavoratore(id="w1", nome="Contratto Zero", ore_settimanali_contratto=0),
-            Lavoratore(id="w2", nome="Contratto Normale", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Contratto Zero", ore_settimanali_min=0, ore_settimanali_max=0),
+            Lavoratore(id="w2", nome="Contratto Normale", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="M", minimo=1),
@@ -492,7 +492,7 @@ def test_ore_settimanali_specifiche_per_lavoratore():
 
     assegnazioni_w1 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w1"]
     assert assegnazioni_w1 == [], (
-        "w1 ha ore_settimanali_contratto=0 ma gli e' stato assegnato un turno: "
+        "w1 ha ore_settimanali_min=0, ore_settimanali_max=0 ma gli e' stato assegnato un turno: "
         "probabile fallback errato sul default globale"
     )
 
@@ -552,7 +552,7 @@ def test_ferie_forzata_riduce_capacita_oraria_disponibile():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),  # 1 giu 2026 = lunedi'
         lavoratori=[
-            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="M", minimo=1),
@@ -583,7 +583,7 @@ def test_riposo_forzato_non_riduce_capacita_oraria():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),
         lavoratori=[
-            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="M", minimo=1),
@@ -620,8 +620,8 @@ def test_niente_notte_prima_di_ferie_forzata():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
         lavoratori=[
-            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
-            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="N", minimo=1),
@@ -653,8 +653,8 @@ def test_niente_notte_prima_di_richiesta_ferie_concessa():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
         lavoratori=[
-            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
-            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="N", minimo=1),
@@ -696,8 +696,8 @@ def test_minimizza_pm_evita_quando_possibile():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
         lavoratori=[
-            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
-            Lavoratore(id="w2", nome="Test Due", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=36, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Test Due", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="P", minimo=1),
@@ -728,7 +728,7 @@ def test_minimizza_pm_disattivabile():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
         lavoratori=[
-            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="P", minimo=1),
@@ -751,7 +751,7 @@ def test_minimizza_pm_non_impedisce_soluzione_quando_inevitabile():
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
         lavoratori=[
-            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_contratto=36),
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=36, ore_settimanali_max=36),
         ],
         fabbisogno=[
             Fabbisogno(giorno=1, fascia="P", minimo=1),
@@ -874,3 +874,86 @@ def test_bilancia_proporzione_giornaliera_funziona_anche_senza_gli_altri():
 
     risultato = genera_turni(dati)
     assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+
+# ---------------------------------------------------------------------------
+# Ore settimanali come intervallo [minimo, massimo], non solo massimo
+# ---------------------------------------------------------------------------
+
+def test_ore_settimanali_minimo_forza_surplus():
+    """w1 ha un minimo di ore settimanali (24h = 3 turni) superiore a
+    quanto il solo fabbisogno richiederebbe (1 turno): il motore deve
+    assegnargli turni extra (surplus oltre il fabbisogno minimo) per
+    raggiungere il suo monte ore minimo contrattuale."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_ore_minimo",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),  # 1 giu 2026 = lunedi'
+        lavoratori=[
+            Lavoratore(id="w1", nome="Minimo Alto", ore_settimanali_min=24, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Backup", ore_settimanali_min=0, ore_settimanali_max=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    ore_per_fascia = {"M": 8, "P": 8, "N": 10}
+    ore_w1 = sum(
+        ore_per_fascia.get(a.fascia, 0) for a in risultato.assegnazioni if a.lavoratore_id == "w1"
+    )
+    assert ore_w1 >= 24, f"w1 ha un minimo di 24h ma gliene sono state assegnate solo {ore_w1}"
+
+
+def test_ore_settimanali_min_uguale_max_forza_valore_esatto():
+    """Se minimo e massimo coincidono (16h), le ore settimanali devono
+    essere ESATTAMENTE quel valore, non di piu' e non di meno — anche se
+    il fabbisogno da solo richiederebbe un solo turno (8h)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_ore_fisse",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Fisso 16h", ore_settimanali_min=16, ore_settimanali_max=16),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible"
+
+    ore_per_fascia = {"M": 8, "P": 8, "N": 10}
+    ore_totali = sum(
+        ore_per_fascia.get(a.fascia, 0) for a in risultato.assegnazioni if a.lavoratore_id == "w1"
+    )
+    assert ore_totali == 16, f"w1 ha min=max=16h ma gliene sono state assegnate {ore_totali}"
+
+
+def test_ore_settimanali_minimo_irraggiungibile_da_infeasible():
+    """Se il minimo settimanale e' fisicamente irraggiungibile (supera le
+    ore ottenibili anche lavorando ogni giorno disponibile), il problema
+    deve risultare infeasible invece di essere silenziosamente ignorato."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_ore_minimo_impossibile",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),  # solo 2 giorni
+        lavoratori=[
+            # Minimo 100h in soli 2 giorni: fisicamente impossibile anche
+            # lavorando entrambi i giorni su tutte e 3 le fasce.
+            Lavoratore(id="w1", nome="Minimo Impossibile", ore_settimanali_min=100, ore_settimanali_max=100),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible"

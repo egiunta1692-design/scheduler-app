@@ -359,7 +359,8 @@ def _init_state():
         {
             "id": l.id,
             "nome": l.nome,
-            "ore_settimanali_contratto": l.ore_settimanali_contratto,
+            "ore_settimanali_min": l.ore_settimanali_min,
+            "ore_settimanali_max": l.ore_settimanali_max,
             "mai_notti": l.vincoli_personali.mai_notti,
         }
         for l in demo.lavoratori
@@ -481,7 +482,8 @@ def _sincronizza_numero_lavoratori(n_target: int):
             nuove_righe.append({
                 "id": f"w{indice_persona}",
                 "nome": f"Nome{indice_persona} Cognome{indice_persona}",
-                "ore_settimanali_contratto": 36,
+                "ore_settimanali_min": 36,
+                "ore_settimanali_max": 36,
                 "mai_notti": False,
             })
         st.session_state.df_lavoratori = pd.concat(
@@ -723,7 +725,14 @@ with tab_regole:
             )
 
 with tab_lavoratori:
-    st.caption("Elenco del personale del reparto per questa categoria (infermieri o oss).")
+    st.caption(
+        "Elenco del personale del reparto per questa categoria (infermieri "
+        "o oss). Ore settimanali min/max: intervallo di ore contrattuali, "
+        "non un valore fisso — sotto il minimo non si puo' andare (il "
+        "motore assegna turni extra se necessario per garantirlo), sopra "
+        "il massimo nemmeno. Se minimo e massimo coincidono, le ore sono "
+        "obbligatoriamente uguali a quel valore."
+    )
     st.session_state.df_lavoratori = st.data_editor(
         st.session_state.df_lavoratori,
         num_rows="dynamic",
@@ -912,7 +921,8 @@ def _costruisci_input() -> InputTurnazione:
         Lavoratore(
             id=str(row["id"]),
             nome=str(row["nome"]),
-            ore_settimanali_contratto=int(row["ore_settimanali_contratto"]),
+            ore_settimanali_min=int(row["ore_settimanali_min"]),
+            ore_settimanali_max=int(row["ore_settimanali_max"]),
             vincoli_personali=VincoliPersonali(mai_notti=bool(row.get("mai_notti", False))),
         )
         for _, row in st.session_state.df_lavoratori.iterrows()

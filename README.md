@@ -184,15 +184,26 @@ Premi "Genera turni" per vedere:
 - le richieste non soddisfatte vengono riportate esplicitamente in output
 
 **Monte ore settimanale:**
-massimo ore settimanali da contratto, **sempre specifico per singolo
-lavoratore** (`lavoratore.ore_settimanali_contratto`, nessun fallback su
-un default globale — un valore 0 viene rispettato letteralmente, non
-sostituito silenziosamente), calcolato su settimane calendario lun-dom
-(ore per fascia configurabili, default 8h per M/P, 10h per N). Se la
-prima settimana del periodo e' a cavallo con l'ultima settimana del mese
-precedente, le ore gia' maturate in `stato_iniziale` in quella settimana
-vengono sommate al conteggio. Vedi anche "Ferie vs riposo" sotto per come
-contano le giornate di ferie.
+ore settimanali da contratto come **intervallo [minimo, massimo]**, non
+un singolo valore fisso — sotto il minimo non si puo' andare (il motore
+assegna turni extra oltre il fabbisogno minimo se necessario per
+garantirlo), sopra il massimo nemmeno. Se minimo e massimo coincidono,
+le ore sono obbligatoriamente uguali a quel valore unico (comportamento
+"a valore fisso", utile se il contratto prevede un numero di ore preciso
+senza flessibilita'). **Sempre specifico per singolo lavoratore**
+(`lavoratore.ore_settimanali_min` / `ore_settimanali_max`, nessun
+fallback su un default globale — un valore 0 viene rispettato
+letteralmente, non sostituito silenziosamente), calcolato su settimane
+calendario lun-dom (ore per fascia configurabili, default 8h per M/P,
+10h per N). Se la prima settimana del periodo e' a cavallo con l'ultima
+settimana del mese precedente, le ore gia' maturate in `stato_iniziale`
+in quella settimana vengono sommate al conteggio. Vedi anche "Ferie vs
+riposo" sotto per come contano le giornate di ferie.
+
+**Nota**: un minimo troppo alto rispetto ai giorni/turni disponibili
+(es. superiore a quanto ottenibile anche lavorando ogni giorno) rende il
+problema `infeasible`, coerentemente con lo stesso comportamento gia'
+in uso per gli altri vincoli hard del motore.
 
 **Ferie vs riposo — differenza sul monte ore:**
 entrambe bloccano i turni allo stesso identico modo, ma non sono

@@ -29,15 +29,20 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      si comportano diversamente nel monte ore (vedi sotto)
 
   MONTE ORE SETTIMANALE E FERIE VS RIPOSO:
-     massimo ore settimanali da contratto, sempre per singolo lavoratore
-     (lavoratore.ore_settimanali_contratto, nessun fallback su un default
-     globale), calcolato dopo i livelli 2 e 3 perche' le giornate di FERIE
-     (forzate dall'admin o concesse tramite richiesta soft accolta)
-     aggiungono ore "virtuali" al monte ore (regole_contrattuali.
-     ore_ferie_giornaliere, e' comunque tempo retribuito), mentre il
-     RIPOSO non aggiunge nulla. Tutto tiene conto di stato_iniziale per i
-     casi a cavallo di mese, incluse le ore gia' maturate nella stessa
-     settimana ISO se la settimana e' a cavallo con il mese precedente
+     ore settimanali da contratto come INTERVALLO [minimo, massimo], non
+     un singolo valore fisso, sempre per singolo lavoratore
+     (lavoratore.ore_settimanali_min / ore_settimanali_max, nessun
+     fallback su un default globale). Sotto il minimo non si puo' andare
+     (il motore puo' assegnare surplus oltre il fabbisogno minimo se
+     necessario per garantirlo), sopra il massimo nemmeno; se minimo ==
+     massimo, equivale a un valore fisso obbligatorio. Calcolato dopo i
+     livelli 2 e 3 perche' le giornate di FERIE (forzate dall'admin o
+     concesse tramite richiesta soft accolta) aggiungono ore "virtuali"
+     al monte ore (regole_contrattuali.ore_ferie_giornaliere, e' comunque
+     tempo retribuito), mentre il RIPOSO non aggiunge nulla. Tutto tiene
+     conto di stato_iniziale per i casi a cavallo di mese, incluse le ore
+     gia' maturate nella stessa settimana ISO se la settimana e' a
+     cavallo con il mese precedente
 
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza lo scarto (max - min) tra lavoratori sul numero di turni
@@ -335,12 +340,13 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
 
     for w in lavoratori_ids:
         lavoratore = next(l for l in dati.lavoratori if l.id == w)
-        # Nota: niente fallback su un default globale qui. Il campo e'
-        # obbligatorio e specifico per lavoratore; un "or" con un default
+        # Nota: niente fallback su un default globale qui. I campi sono
+        # obbligatori e specifici per lavoratore; un "or" con un default
         # globale tratterebbe erroneamente 0 (es. lavoratore con contratto
         # sospeso quel mese) come "non impostato", sostituendolo col
-        # default 36h in modo silenzioso e sbagliato.
-        max_ore = lavoratore.ore_settimanali_contratto
+        # default in modo silenzioso e sbagliato.
+        min_ore = lavoratore.ore_settimanali_min
+        max_ore = lavoratore.ore_settimanali_max
 
         for chiave_settimana, giorni_settimana in settimane.items():
             ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
@@ -355,9 +361,16 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             ore_ferie_soft_espr = sum(
                 ore_ferie_giornaliere * (1 - miss) for miss in miss_vars_ferie_soft
             )
-            model.Add(
-                ore_espr + ore_gia_maturate + ore_ferie_forzata + ore_ferie_soft_espr <= max_ore
-            )
+            ore_totali_settimana = ore_espr + ore_gia_maturate + ore_ferie_forzata + ore_ferie_soft_espr
+
+            # Intervallo [minimo, massimo]: sotto il minimo non si puo'
+            # andare (per garantirlo, il motore puo' assegnare surplus
+            # oltre il fabbisogno minimo se necessario — vedi il vincolo
+            # di copertura, che e' un ">=", non un "="), sopra il massimo
+            # nemmeno. Se minimo == massimo, questo equivale a un vincolo
+            # di uguaglianza esatta (comportamento "a valore fisso").
+            model.Add(ore_totali_settimana <= max_ore)
+            model.Add(ore_totali_settimana >= min_ore)
 
     # ==================================================================
     # LIVELLO 4: fairness (soft, priorita' piu' bassa)
@@ -436,7 +449,7 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             tassi_settimana = []
             for w in lavoratori_ids:
                 lavoratore = next(l for l in dati.lavoratori if l.id == w)
-                max_ore_w = lavoratore.ore_settimanali_contratto
+                max_ore_w = lavoratore.ore_settimanali_max
                 ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
                 capacita_residua = max(max_ore_w - ore_gia_maturate, 0)
 

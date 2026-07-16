@@ -23,7 +23,12 @@ class VincoliPersonali:
 class Lavoratore:
     id: str
     nome: str
-    ore_settimanali_contratto: int
+    # Le ore contrattuali settimanali sono un INTERVALLO, non un singolo
+    # valore fisso: sotto il minimo non si puo' andare, sopra il massimo
+    # nemmeno. Se minimo == massimo, le ore sono obbligatoriamente
+    # uguali a quel valore unico (comportamento "a valore fisso").
+    ore_settimanali_min: int
+    ore_settimanali_max: int
     tempo_parziale: bool = False
     vincoli_personali: VincoliPersonali = field(default_factory=VincoliPersonali)
 
