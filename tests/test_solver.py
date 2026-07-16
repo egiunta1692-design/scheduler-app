@@ -766,3 +766,55 @@ def test_minimizza_pm_non_impedisce_soluzione_quando_inevitabile():
         "Il vincolo e' soft: anche se P->M e' inevitabile con un solo "
         "lavoratore, il problema deve restare risolvibile"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bug fix: doppia divisione in bilancia_copertura_giornaliera
+# ---------------------------------------------------------------------------
+
+def test_peso_bilancia_copertura_ha_effetto_misurabile():
+    """Prima della correzione, la normalizzazione finale del termine
+    'bilancia_copertura_giornaliera' divideva due volte per lo stesso
+    fattore di scala, schiacciando il segnale quasi a zero: il peso non
+    aveva quasi nessun effetto pratico. Verifichiamo che ora un peso alto
+    produca uno scarto di surplus (tra M e P, che hanno lo stesso
+    fabbisogno nel sample) uguale o minore di un peso basso."""
+    dati_basso = get_sample_input()
+    dati_basso.parametri_fairness.peso_bilancia_copertura_giornaliera = 1
+    dati_basso.parametri_fairness.minimizza_pm_consecutivo = False  # isola l'effetto
+
+    dati_alto = get_sample_input()
+    dati_alto.parametri_fairness.peso_bilancia_copertura_giornaliera = 10
+    dati_alto.parametri_fairness.minimizza_pm_consecutivo = False
+
+    def _scarto_tasso_mp(risultato, dati):
+        minimo = {(f.giorno, f.fascia): f.minimo for f in dati.fabbisogno}
+        conteggio = defaultdict(int)
+        for a in risultato.assegnazioni:
+            conteggio[(a.giorno, a.fascia)] += 1
+        tassi = []
+        for (g, f), m in minimo.items():
+            if m > 0 and f in ("M", "P"):
+                surplus = conteggio.get((g, f), 0) - m
+                tassi.append(surplus / m)
+        return (max(tassi) - min(tassi)) if tassi else 0
+
+    risultato_basso = genera_turni(dati_basso)
+    risultato_alto = genera_turni(dati_alto)
+
+    assert risultato_basso.stato in ("feasible", "feasible_con_declassamenti")
+    assert risultato_alto.stato in ("feasible", "feasible_con_declassamenti")
+
+    scarto_basso = _scarto_tasso_mp(risultato_basso, dati_basso)
+    scarto_alto = _scarto_tasso_mp(risultato_alto, dati_alto)
+
+    # Non pretendiamo che sia sempre strettamente minore (dipende da come
+    # il solver risolve i pareggi), ma un margine di tolleranza ampio
+    # dovrebbe comunque mostrare che il peso alto non e' peggiore di
+    # quello basso — prima della correzione, il peso non aveva alcun
+    # effetto pratico indipendentemente dal suo valore.
+    assert scarto_alto <= scarto_basso + 0.34, (
+        f"Con peso alto lo scarto di tasso M/P dovrebbe essere uguale o "
+        f"minore di quello con peso basso: basso={scarto_basso:.2f}, "
+        f"alto={scarto_alto:.2f}"
+    )

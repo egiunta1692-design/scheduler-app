@@ -80,7 +80,16 @@ class ParametriFairness:
     bilancia_copertura_giornaliera: bool = True
     bilancia_ore_settimanali: bool = True
     minimizza_pm_consecutivo: bool = True
-    peso_fairness: int = 2
+    # Pesi individuali per ciascun vincolo soft (default = preset
+    # "Equilibrio reparto", vedi PRESET_FAIRNESS in app.py). Un peso
+    # condiviso unico penalizzava tutti i vincoli nella stessa proporzione,
+    # impedendo di dare piu' importanza a uno specifico senza alterare
+    # anche gli altri.
+    peso_bilancia_fasce: int = 5
+    peso_bilancia_giorni_settimana: int = 3
+    peso_bilancia_ore_settimanali: int = 4
+    peso_bilancia_copertura_giornaliera: int = 7
+    peso_minimizza_pm_consecutivo: int = 2
 
 
 @dataclass

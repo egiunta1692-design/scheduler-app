@@ -239,8 +239,36 @@ conseguenza i turni reali assegnabili quella settimana.
   vietato — spesso e' inevitabile per esigenze di copertura, motivo per
   cui e' un termine soft e non un vincolo hard — ma minimizzato dove
   possibile, premiando implicitamente M->P rispetto a P->M
-- peso configurabile rispetto alle richieste soft (di default le
-  richieste contano di piu' dell'equilibrio del team)
+- **ciascuno dei 5 vincoli soft sopra ha un peso individuale**
+  (`peso_bilancia_fasce`, `peso_bilancia_giorni_settimana`,
+  `peso_bilancia_ore_settimanali`, `peso_bilancia_copertura_giornaliera`,
+  `peso_minimizza_pm_consecutivo`), non piu' un unico peso condiviso —
+  un peso condiviso penalizzava tutti i vincoli nella stessa proporzione,
+  impedendo di dare piu' importanza a uno specifico senza alterare anche
+  gli altri. Tre preset di partenza disponibili in UI (poi modificabili
+  singolarmente):
+  - **Equilibrio reparto** (consigliato, default): privilegia il
+    bilanciamento del surplus di copertura (7) tenendo basso l'evitamento
+    P->M (2), utile quando fasce con lo stesso fabbisogno (es. M e P)
+    rischiano di finire sbilanciate tra loro
+  - **Benessere lavoratori**: privilegia il riposo fisiologico
+    (minimizza P->M a 6) e il bilanciamento ore settimanali (6),
+    accettando un po' piu' di squilibrio tra fasce pur di proteggere
+    meglio i tempi di recupero
+  - **Leggero**: tutti i pesi a 1, la fairness interviene pochissimo
+  
+  Tutti i valori restano sotto 10 (il peso di una richiesta soft di
+  priorita' media), cosi' le preferenze dei lavoratori continuano a
+  prevalere sull'equilibrio del team
+
+**Nota su un bug corretto**: la normalizzazione finale del termine
+"spalma surplus copertura" divideva due volte per lo stesso fattore di
+scala, schiacciando quasi a zero un segnale che avrebbe dovuto essere
+significativo (uno scarto di 200 punti percentuali produceva un
+contributo finale di appena 2 nell'obiettivo, contro scarti tipici di
+10-20 degli altri termini fairness) — corretto usando un fattore di
+rinormalizzazione molto piu' piccolo (10 invece di 100), che preserva
+il segnale invece di annullarlo.
 
 ## Dataset di esempio
 

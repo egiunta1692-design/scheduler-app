@@ -362,7 +362,6 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     # ==================================================================
     # LIVELLO 4: fairness (soft, priorita' piu' bassa)
     # ==================================================================
-    peso_fairness = dati.parametri_fairness.peso_fairness
     n_giorni = len(giorni)
 
     if dati.parametri_fairness.bilancia_fasce:
@@ -380,7 +379,7 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
 
             scarto = model.NewIntVar(0, n_giorni, f"scarto_{f}")
             model.Add(scarto == max_c - min_c)
-            termini_obiettivo.append(peso_fairness * scarto)
+            termini_obiettivo.append(dati.parametri_fairness.peso_bilancia_fasce * scarto)
 
     if dati.parametri_fairness.bilancia_giorni_settimana:
         conteggi_giorni = []
@@ -396,7 +395,7 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
 
         scarto_giorni = model.NewIntVar(0, n_giorni, "scarto_giorni")
         model.Add(scarto_giorni == max_g - min_g)
-        termini_obiettivo.append(peso_fairness * scarto_giorni)
+        termini_obiettivo.append(dati.parametri_fairness.peso_bilancia_giorni_settimana * scarto_giorni)
 
     if dati.parametri_fairness.bilancia_ore_settimanali:
         # bilancia_giorni_settimana bilancia il TOTALE sull'intero periodo:
@@ -463,7 +462,7 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
 
                 scarto_tasso_ore = model.NewIntVar(0, SCALE, f"scarto_tasso_ore_{chiave_settimana}")
                 model.Add(scarto_tasso_ore == max_t - min_t)
-                termini_obiettivo.append(peso_fairness * scarto_tasso_ore)
+                termini_obiettivo.append(dati.parametri_fairness.peso_bilancia_ore_settimanali * scarto_tasso_ore)
 
     if dati.parametri_fairness.bilancia_copertura_giornaliera:
         # Il vincolo di copertura minima e' "almeno N persone", non
@@ -484,12 +483,19 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         # numeri reali: usiamo AddDivisionEquality con un fattore di scala
         # (SCALE) per mantenere precisione lavorando solo con interi, poi
         # normalizziamo lo scarto finale allo stesso ordine di grandezza
-        # degli altri termini di fairness prima di pesarlo.
+        # degli altri termini di fairness prima di pesarlo. ATTENZIONE:
+        # SCALE (100) serve per la precisione interna del rapporto
+        # surplus/minimo (es. 1/3 diventa 33 invece di essere troncato a
+        # 0), ma dividere di nuovo per lo STESSO SCALE=100 alla fine
+        # schiaccia quasi tutto a 0-2 (bug corretto qui sotto: usiamo un
+        # fattore di rinormalizzazione molto piu' piccolo, che preserva il
+        # segnale invece di annullarlo quasi del tutto).
         minimo_per_giorno_fascia = {
             (fab.giorno, fab.fascia): fab.minimo for fab in dati.fabbisogno
         }
         n_lavoratori = len(lavoratori_ids)
         SCALE = 100
+        FATTORE_RINORMALIZZAZIONE = 10  # 1 unita' finale = 10 punti percentuali di scarto
 
         tassi_surplus = []
         for f in fasce:
@@ -520,12 +526,12 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             scarto_tasso = model.NewIntVar(0, n_lavoratori * SCALE, "scarto_tasso_surplus")
             model.Add(scarto_tasso == max_t - min_t)
 
-            # Normalizziamo lo scarto togliendo il fattore di scala, cosi'
-            # il peso_fairness pesa questo termine in modo comparabile agli
-            # altri (che sono nell'ordine di 0..n_lavoratori/n_giorni)
-            scarto_tasso_normalizzato = model.NewIntVar(0, n_lavoratori, "scarto_tasso_normalizzato")
-            model.AddDivisionEquality(scarto_tasso_normalizzato, scarto_tasso, SCALE)
-            termini_obiettivo.append(peso_fairness * scarto_tasso_normalizzato)
+            limite_normalizzato = (n_lavoratori * SCALE) // FATTORE_RINORMALIZZAZIONE
+            scarto_tasso_normalizzato = model.NewIntVar(0, limite_normalizzato, "scarto_tasso_normalizzato")
+            model.AddDivisionEquality(scarto_tasso_normalizzato, scarto_tasso, FATTORE_RINORMALIZZAZIONE)
+            termini_obiettivo.append(
+                dati.parametri_fairness.peso_bilancia_copertura_giornaliera * scarto_tasso_normalizzato
+            )
 
     if dati.parametri_fairness.minimizza_pm_consecutivo and "P" in fasce and "M" in fasce:
         # Una sequenza Pomeriggio (giorno G) -> Mattino (giorno G+1) lascia
@@ -548,7 +554,7 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                     continue
                 pm_var = model.NewBoolVar(f"pm_consecutivo_{w}_{g}")
                 model.Add(pm_var >= x[(w, g, "P")] + x[(w, giorno_dopo, "M")] - 1)
-                termini_obiettivo.append(peso_fairness * pm_var)
+                termini_obiettivo.append(dati.parametri_fairness.peso_minimizza_pm_consecutivo * pm_var)
 
     # ------------------------------------------------------------------
     # Obiettivo finale: minimizza la somma pesata di tutte le penalita' soft

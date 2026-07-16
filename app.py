@@ -97,6 +97,38 @@ COLORI_FASCIA = {
 # ---------------------------------------------------------------------------
 PRIORITA_LABEL = {1: "bassa", 2: "media", 3: "alta", 4: "molto alta"}
 
+# Preset di pesi per i vincoli soft di fairness. Ogni vincolo ha un peso
+# individuale (non piu' un unico peso condiviso): un peso condiviso
+# penalizzava tutti i vincoli nella stessa proporzione, impedendo di dare
+# piu' importanza a uno specifico senza alterare anche gli altri. Tutti i
+# valori restano sotto 10 (il peso di una richiesta soft di priorita' 2),
+# cosi' anche la preferenza piu' debole di un lavoratore continua a
+# prevalere su qualunque combinazione di fairness.
+PRESET_FAIRNESS = {
+    "Equilibrio reparto (consigliato)": {
+        "peso_bilancia_fasce": 5,
+        "peso_bilancia_giorni_settimana": 3,
+        "peso_bilancia_ore_settimanali": 4,
+        "peso_bilancia_copertura_giornaliera": 7,
+        "peso_minimizza_pm_consecutivo": 2,
+    },
+    "Benessere lavoratori": {
+        "peso_bilancia_fasce": 3,
+        "peso_bilancia_giorni_settimana": 3,
+        "peso_bilancia_ore_settimanali": 6,
+        "peso_bilancia_copertura_giornaliera": 3,
+        "peso_minimizza_pm_consecutivo": 6,
+    },
+    "Leggero": {
+        "peso_bilancia_fasce": 1,
+        "peso_bilancia_giorni_settimana": 1,
+        "peso_bilancia_ore_settimanali": 1,
+        "peso_bilancia_copertura_giornaliera": 1,
+        "peso_minimizza_pm_consecutivo": 1,
+    },
+}
+CHIAVI_PESI_FAIRNESS = list(PRESET_FAIRNESS["Equilibrio reparto (consigliato)"].keys())
+
 OPZIONI_CELLA = (
     [""]
     + [f"F{p}" for p in range(1, 5)]
@@ -379,8 +411,16 @@ def _init_state():
         "bilancia_ore_settimanali": demo.parametri_fairness.bilancia_ore_settimanali,
         "bilancia_copertura_giornaliera": demo.parametri_fairness.bilancia_copertura_giornaliera,
         "minimizza_pm_consecutivo": demo.parametri_fairness.minimizza_pm_consecutivo,
-        "peso_fairness": demo.parametri_fairness.peso_fairness,
     }
+    # Pesi come chiavi dirette di session_state (non dentro il dizionario
+    # sopra) cosi' il preset puo' scriverle direttamente e i relativi
+    # slider (key=stesso nome) le rileggono correttamente allo stesso
+    # giro di esecuzione, senza il ritardo "un giro indietro" che si
+    # avrebbe se il preset scrivesse in una struttura diversa da quella
+    # che il widget usa come propria chiave.
+    for chiave, valore in PRESET_FAIRNESS["Equilibrio reparto (consigliato)"].items():
+        st.session_state[chiave] = valore
+    st.session_state.preset_fairness_selezionato = "Equilibrio reparto (consigliato)"
 
     st.session_state.risultato = None
     st.session_state.ultimo_input = None
@@ -592,11 +632,64 @@ with tab_regole:
                 "premiando implicitamente M->P rispetto a P->M."
             ),
         )
-        st.session_state.fairness["peso_fairness"] = st.slider(
-            "Peso della fairness rispetto alle richieste dei lavoratori",
-            min_value=1, max_value=20, value=st.session_state.fairness["peso_fairness"],
-            help="Basso = le preferenze dei lavoratori contano di piu' dell'equilibrio del team.",
+
+        st.divider()
+
+        def _applica_preset_fairness():
+            valori = PRESET_FAIRNESS[st.session_state.preset_fairness_selezionato]
+            for chiave, valore in valori.items():
+                st.session_state[chiave] = valore
+
+        st.selectbox(
+            "Preset di pesi fairness",
+            options=list(PRESET_FAIRNESS.keys()),
+            key="preset_fairness_selezionato",
+            on_change=_applica_preset_fairness,
+            help=(
+                "Punto di partenza consigliato per i 5 pesi qui sotto. Dopo "
+                "averlo scelto puoi comunque modificare ogni peso "
+                "singolarmente nell'espansione 'Pesi avanzati'."
+            ),
         )
+
+        with st.expander("Pesi avanzati (personalizza singolarmente)", expanded=False):
+            st.caption(
+                "Ogni vincolo ha un peso indipendente invece di uno unico "
+                "condiviso: cosi' puoi dare piu' importanza a uno specifico "
+                "senza alterare gli altri nella stessa proporzione. Tutti i "
+                "pesi restano intenzionalmente sotto 10 (il peso di una "
+                "richiesta soft di priorita' media), cosi' le preferenze "
+                "dei lavoratori continuano a prevalere sull'equilibrio del "
+                "team."
+            )
+            st.slider(
+                "Peso: bilancia turni per fascia", min_value=1, max_value=10,
+                key="peso_bilancia_fasce",
+            )
+            st.slider(
+                "Peso: bilancia giorni lavorati", min_value=1, max_value=10,
+                key="peso_bilancia_giorni_settimana",
+            )
+            st.slider(
+                "Peso: bilancia ore settimanali", min_value=1, max_value=10,
+                key="peso_bilancia_ore_settimanali",
+            )
+            st.slider(
+                "Peso: spalma surplus copertura", min_value=1, max_value=10,
+                key="peso_bilancia_copertura_giornaliera",
+                help=(
+                    "Confronta il surplus (turni oltre il minimo richiesto) "
+                    "come tasso proporzionale al fabbisogno, su un'unica "
+                    "scala tra tutte le fasce e i giorni: minimizza il "
+                    "divario peggiore tra una coppia giorno/fascia e "
+                    "un'altra, cosi' M e P (se hanno lo stesso fabbisogno) "
+                    "non finiscono con surplus molto diversi tra loro."
+                ),
+            )
+            st.slider(
+                "Peso: minimizza sequenze P->M", min_value=1, max_value=10,
+                key="peso_minimizza_pm_consecutivo",
+            )
 
 with tab_lavoratori:
     st.caption("Elenco del personale del reparto per questa categoria (infermieri o oss).")
@@ -876,7 +969,11 @@ def _costruisci_input() -> InputTurnazione:
         bilancia_ore_settimanali=st.session_state.fairness["bilancia_ore_settimanali"],
         bilancia_copertura_giornaliera=st.session_state.fairness["bilancia_copertura_giornaliera"],
         minimizza_pm_consecutivo=st.session_state.fairness["minimizza_pm_consecutivo"],
-        peso_fairness=int(st.session_state.fairness["peso_fairness"]),
+        peso_bilancia_fasce=int(st.session_state.peso_bilancia_fasce),
+        peso_bilancia_giorni_settimana=int(st.session_state.peso_bilancia_giorni_settimana),
+        peso_bilancia_ore_settimanali=int(st.session_state.peso_bilancia_ore_settimanali),
+        peso_bilancia_copertura_giornaliera=int(st.session_state.peso_bilancia_copertura_giornaliera),
+        peso_minimizza_pm_consecutivo=int(st.session_state.peso_minimizza_pm_consecutivo),
     )
 
     return InputTurnazione(
