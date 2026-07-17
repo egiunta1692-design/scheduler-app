@@ -201,19 +201,19 @@ def test_max_ore_settimanali_rispettato():
     risultato = genera_turni(dati)
     assert risultato.stato == "feasible"
 
-    ore_per_fascia = dati.regole_contrattuali.ore_per_fascia
-    ore_per_settimana = defaultdict(int)
+    minuti_per_fascia = dati.regole_contrattuali.minuti_per_fascia
+    minuti_per_settimana = defaultdict(int)
 
     for a in risultato.assegnazioni:
         data = data_da_indice_periodo(dati.periodo.anno, dati.periodo.mese, a.giorno)
         _, settimana_iso, _ = data.isocalendar()
         chiave = (a.lavoratore_id, settimana_iso)
-        ore_per_settimana[chiave] += ore_per_fascia.get(a.fascia, 0)
+        minuti_per_settimana[chiave] += minuti_per_fascia.get(a.fascia, 0)
 
     lavoratori_per_id = {l.id: l for l in dati.lavoratori}
-    for (w, _settimana), ore in ore_per_settimana.items():
-        max_ore = lavoratori_per_id[w].ore_settimanali_max
-        assert ore <= max_ore
+    for (w, _settimana), minuti in minuti_per_settimana.items():
+        max_minuti = lavoratori_per_id[w].ore_settimanali_max * 60
+        assert minuti <= max_minuti
 
 
 # ---------------------------------------------------------------------------
@@ -518,18 +518,18 @@ def test_fairness_bilancia_ore_per_settimana():
     risultato = genera_turni(dati)
     assert risultato.stato in ("feasible", "feasible_con_declassamenti")
 
-    ore_per_fascia = dati.regole_contrattuali.ore_per_fascia
-    ore_per_settimana_lavoratore = defaultdict(lambda: defaultdict(int))
+    minuti_per_fascia = dati.regole_contrattuali.minuti_per_fascia
+    minuti_per_settimana_lavoratore = defaultdict(lambda: defaultdict(int))
 
     for a in risultato.assegnazioni:
         data = data_da_indice_periodo(dati.periodo.anno, dati.periodo.mese, a.giorno)
         chiave = data.isocalendar()[:2]
-        ore_per_settimana_lavoratore[chiave][a.lavoratore_id] += ore_per_fascia.get(a.fascia, 0)
+        minuti_per_settimana_lavoratore[chiave][a.lavoratore_id] += minuti_per_fascia.get(a.fascia, 0)
 
     lavoratori_ids = [l.id for l in dati.lavoratori]
 
-    for chiave, ore_per_lavoratore in ore_per_settimana_lavoratore.items():
-        ore_complete = [ore_per_lavoratore.get(w, 0) for w in lavoratori_ids]
+    for chiave, minuti_per_lavoratore in minuti_per_settimana_lavoratore.items():
+        ore_complete = [minuti_per_lavoratore.get(w, 0) / 60 for w in lavoratori_ids]
         scarto = max(ore_complete) - min(ore_complete)
 
         # Soglia larga apposta (controllo di sanita', non vincolo esatto):
@@ -1265,4 +1265,104 @@ def test_vincolo_admin_vicino_a_notti_pregresse_puo_essere_infeasible():
         "continuare la serie (vietato dal massimo notti consecutive) sia "
         "fermarsi (il riposo dovuto blocca il turno forzato) portano a un "
         "vicolo cieco"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Turni con minuti frazionari (non solo ore intere)
+# ---------------------------------------------------------------------------
+
+def test_turni_con_minuti_rispettano_il_massimo_ore():
+    """Verifica che un turno di 7h30m (450 minuti, non un numero intero di
+    ore) venga contato correttamente nel vincolo di ore settimanali: con
+    un massimo di 36h (2160 minuti), 4 turni da 7h30m fanno 30h
+    (1800 minuti, ammissibile), un quinto turno supererebbe le 36h — con
+    un lavoratore di riserva disponibile, il motore deve quindi limitare
+    w1 a 4 turni al massimo e far coprire il quinto giorno a w2."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_minuti_frazionari",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),  # 1 giu 2026 = lunedi'
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=0, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Backup", ore_settimanali_min=0, ore_settimanali_max=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 6)  # 5 giorni, minimo 1 M/giorno
+        ],
+        regole_contrattuali=RegoleContrattuali(
+            minuti_per_fascia={"M": 450, "P": 480, "N": 600},  # M = 7h30m
+        ),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible"
+
+    turni_w1 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.fascia == "M"]
+    minuti_totali = len(turni_w1) * 450
+    assert minuti_totali <= 36 * 60, (
+        f"w1 ha {len(turni_w1)} turni da 7h30m = {minuti_totali} minuti, "
+        f"supera le 36h (2160 minuti) contrattuali"
+    )
+    # Con turni da 7h30m e un massimo di 36h, non dovrebbero essere
+    # possibili piu' di 4 turni in una settimana per lo stesso lavoratore
+    # (4*7h30m=30h, 5*7h30m=37h30m supererebbe il massimo) — col backup
+    # disponibile, il motore ha la flessibilita' di rispettarlo davvero.
+    assert len(turni_w1) <= 4, (
+        "Con turni da 7h30m e un massimo di 36h, non dovrebbero essere "
+        "possibili piu' di 4 turni in una settimana per lo stesso lavoratore"
+    )
+
+
+def test_ferie_giornaliere_con_minuti_frazionari():
+    """Verifica che ore_ferie_giornaliere con minuti (es. 7h45m = 465
+    minuti) venga aggiunto correttamente al monte ore quando una ferie
+    forzata dall'admin si combina con turni regolari, e che il totale
+    non superi mai il massimo settimanale — qualunque sia la
+    distribuzione scelta dal motore (con un lavoratore di riserva
+    disponibile, il motore ha la flessibilita' di rispettarlo davvero,
+    a differenza di un singolo lavoratore forzato su tutta la
+    copertura)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_ferie_minuti",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=0, ore_settimanali_max=36),
+            Lavoratore(id="w2", nome="Backup", ore_settimanali_min=0, ore_settimanali_max=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 6)
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="ferie"),
+        ],
+        regole_contrattuali=RegoleContrattuali(
+            minuti_per_fascia={"M": 480, "P": 480, "N": 600},  # 8h
+            minuti_ferie_giornaliere=465,  # 7h45m
+        ),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible"
+
+    # w1 ha ferie il giorno 1 (465 minuti virtuali fissi) + eventuali
+    # turni M sui giorni 2-5: il totale non deve mai superare 36h (2160
+    # minuti), qualunque sia il numero di turni che il motore gli assegna.
+    turni_w1 = [a for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.fascia == "M"]
+    minuti_totali = 465 + len(turni_w1) * 480
+    assert minuti_totali <= 36 * 60, (
+        f"w1: 465 minuti ferie + {len(turni_w1)} turni da 480 minuti = "
+        f"{minuti_totali} minuti, supera le 36h (2160 minuti)"
+    )
+    # Verifica indiretta che i minuti di ferie siano stati davvero
+    # contati (non ignorati): con budget residuo di 1695 minuti dopo la
+    # ferie, al massimo 3 turni da 480 minuti sono ammissibili per w1
+    # (1695 // 480 == 3) — se il vincolo ignorasse i minuti di ferie,
+    # sarebbero ammissibili fino a 4 turni (2160 // 480 == 4).
+    assert len(turni_w1) <= 3, (
+        f"w1 ha {len(turni_w1)} turni M oltre alla ferie da 465 minuti: "
+        "se i minuti di ferie fossero conteggiati correttamente, non "
+        "dovrebbero essere possibili piu' di 3 turni (budget residuo "
+        "1695 minuti // 480 = 3)"
     )

@@ -467,13 +467,23 @@ def _init_state():
 
     st.session_state.df_calendario = df_cal
 
+    # Ore e minuti separati per ciascuna fascia (e per le ferie): il
+    # motore lavora internamente in minuti (regole_contrattuali.
+    # minuti_per_fascia / minuti_ferie_giornaliere), ma qui li scomponiamo
+    # in ore+minuti per un input piu' naturale — ricombinati in
+    # _costruisci_input().
+    _minuti_M = demo.regole_contrattuali.minuti_per_fascia.get("M", 480)
+    _minuti_P = demo.regole_contrattuali.minuti_per_fascia.get("P", 480)
+    _minuti_N = demo.regole_contrattuali.minuti_per_fascia.get("N", 600)
+    _minuti_ferie = demo.regole_contrattuali.minuti_ferie_giornaliere
+
     st.session_state.regole = {
         "max_notti_consecutive": demo.regole_contrattuali.max_notti_consecutive,
         "giorni_riposo_dopo_notte": demo.regole_contrattuali.giorni_riposo_dopo_notte,
-        "ore_M": demo.regole_contrattuali.ore_per_fascia.get("M", 8),
-        "ore_P": demo.regole_contrattuali.ore_per_fascia.get("P", 8),
-        "ore_N": demo.regole_contrattuali.ore_per_fascia.get("N", 10),
-        "ore_ferie_giornaliere": demo.regole_contrattuali.ore_ferie_giornaliere,
+        "ore_M": _minuti_M // 60, "minuti_M": _minuti_M % 60,
+        "ore_P": _minuti_P // 60, "minuti_P": _minuti_P % 60,
+        "ore_N": _minuti_N // 60, "minuti_N": _minuti_N % 60,
+        "ore_ferie_giornaliere": _minuti_ferie // 60, "minuti_ferie_giornaliere": _minuti_ferie % 60,
     }
 
     st.session_state.fairness = {
@@ -666,24 +676,53 @@ with tab_regole:
                 "una ferie possono essere notte."
             ),
         )
-        st.session_state.regole["ore_M"] = st.number_input(
-            "Ore turno Mattino", value=st.session_state.regole["ore_M"], min_value=1, max_value=12
-        )
-        st.session_state.regole["ore_P"] = st.number_input(
-            "Ore turno Pomeriggio", value=st.session_state.regole["ore_P"], min_value=1, max_value=12
-        )
-        st.session_state.regole["ore_N"] = st.number_input(
-            "Ore turno Notte", value=st.session_state.regole["ore_N"], min_value=1, max_value=12
-        )
-        st.session_state.regole["ore_ferie_giornaliere"] = st.number_input(
-            "Ore ferie giornaliere",
-            value=st.session_state.regole["ore_ferie_giornaliere"], min_value=0, max_value=12,
-            help=(
-                "Ore virtuali che una giornata di ferie aggiunge al monte ore "
-                "settimanale (e' comunque tempo retribuito). Il riposo non "
-                "aggiunge nulla."
-            ),
-        )
+        st.caption("Durata dei turni (ore e minuti)")
+        col_oreM, col_minM = st.columns(2)
+        with col_oreM:
+            st.session_state.regole["ore_M"] = st.number_input(
+                "Ore Mattino", value=st.session_state.regole["ore_M"], min_value=0, max_value=23,
+            )
+        with col_minM:
+            st.session_state.regole["minuti_M"] = st.number_input(
+                "Minuti Mattino", value=st.session_state.regole["minuti_M"], min_value=0, max_value=59, step=5,
+            )
+
+        col_oreP, col_minP = st.columns(2)
+        with col_oreP:
+            st.session_state.regole["ore_P"] = st.number_input(
+                "Ore Pomeriggio", value=st.session_state.regole["ore_P"], min_value=0, max_value=23,
+            )
+        with col_minP:
+            st.session_state.regole["minuti_P"] = st.number_input(
+                "Minuti Pomeriggio", value=st.session_state.regole["minuti_P"], min_value=0, max_value=59, step=5,
+            )
+
+        col_oreN, col_minN = st.columns(2)
+        with col_oreN:
+            st.session_state.regole["ore_N"] = st.number_input(
+                "Ore Notte", value=st.session_state.regole["ore_N"], min_value=0, max_value=23,
+            )
+        with col_minN:
+            st.session_state.regole["minuti_N"] = st.number_input(
+                "Minuti Notte", value=st.session_state.regole["minuti_N"], min_value=0, max_value=59, step=5,
+            )
+
+        col_oreF, col_minF = st.columns(2)
+        with col_oreF:
+            st.session_state.regole["ore_ferie_giornaliere"] = st.number_input(
+                "Ore ferie giornaliere", value=st.session_state.regole["ore_ferie_giornaliere"],
+                min_value=0, max_value=23,
+                help=(
+                    "Ore (+ minuti a fianco) virtuali che una giornata di "
+                    "ferie aggiunge al monte ore settimanale (e' comunque "
+                    "tempo retribuito). Il riposo non aggiunge nulla."
+                ),
+            )
+        with col_minF:
+            st.session_state.regole["minuti_ferie_giornaliere"] = st.number_input(
+                "Minuti ferie giornaliere", value=st.session_state.regole["minuti_ferie_giornaliere"],
+                min_value=0, max_value=59, step=5,
+            )
 
     with col2:
         st.subheader("Fairness (equilibrio tra lavoratori e giorni)")
@@ -1091,12 +1130,15 @@ def _costruisci_input() -> InputTurnazione:
     regole = RegoleContrattuali(
         max_notti_consecutive=int(st.session_state.regole["max_notti_consecutive"]),
         giorni_riposo_dopo_notte=int(st.session_state.regole["giorni_riposo_dopo_notte"]),
-        ore_per_fascia={
-            "M": int(st.session_state.regole["ore_M"]),
-            "P": int(st.session_state.regole["ore_P"]),
-            "N": int(st.session_state.regole["ore_N"]),
+        minuti_per_fascia={
+            "M": int(st.session_state.regole["ore_M"]) * 60 + int(st.session_state.regole["minuti_M"]),
+            "P": int(st.session_state.regole["ore_P"]) * 60 + int(st.session_state.regole["minuti_P"]),
+            "N": int(st.session_state.regole["ore_N"]) * 60 + int(st.session_state.regole["minuti_N"]),
         },
-        ore_ferie_giornaliere=int(st.session_state.regole["ore_ferie_giornaliere"]),
+        minuti_ferie_giornaliere=(
+            int(st.session_state.regole["ore_ferie_giornaliere"]) * 60
+            + int(st.session_state.regole["minuti_ferie_giornaliere"])
+        ),
     )
 
     fairness = ParametriFairness(
@@ -1360,12 +1402,12 @@ if risultato is not None:
             st.session_state.df_lavoratori["id"], st.session_state.df_lavoratori["nome"]
         ))
 
-        ore_per_fascia_effettive = (
-            ultimo_input.regole_contrattuali.ore_per_fascia if ultimo_input
-            else {"M": 8, "P": 8, "N": 10}
+        minuti_per_fascia_effettive = (
+            ultimo_input.regole_contrattuali.minuti_per_fascia if ultimo_input
+            else {"M": 480, "P": 480, "N": 600}
         )
-        ore_ferie_giornaliere_effettive = (
-            ultimo_input.regole_contrattuali.ore_ferie_giornaliere if ultimo_input else 8
+        minuti_ferie_giornaliere_effettive = (
+            ultimo_input.regole_contrattuali.minuti_ferie_giornaliere if ultimo_input else 480
         )
         p_ref = st.session_state.periodo
         anno_ref, mese_ref = int(p_ref["anno"]), int(p_ref["mese"])
@@ -1382,14 +1424,14 @@ if risultato is not None:
         conteggi_n = defaultdict(int)
         conteggi_per_fascia = {"M": conteggi_m, "P": conteggi_p, "N": conteggi_n}
         conteggi_ferie = defaultdict(int)
-        ore_mese_per_lavoratore = defaultdict(int)
+        minuti_mese_per_lavoratore = defaultdict(int)
 
         for a in risultato.assegnazioni:
             data = data_da_indice_periodo(anno_ref, mese_ref, a.giorno)
             if data.month == mese_ref and data.year == anno_ref:
                 if a.fascia in conteggi_per_fascia:
                     conteggi_per_fascia[a.fascia][a.lavoratore_id] += 1
-                ore_mese_per_lavoratore[a.lavoratore_id] += ore_per_fascia_effettive.get(a.fascia, 0)
+                minuti_mese_per_lavoratore[a.lavoratore_id] += minuti_per_fascia_effettive.get(a.fascia, 0)
 
         # Giorni di ferie del mese di riferimento (admin forzata o
         # richiesta soft accolta), per il conteggio "Ferie" in tabella.
@@ -1430,7 +1472,7 @@ if risultato is not None:
         # settimana ISO di ciascuna voce con quella del primo giorno del
         # periodo (l'unica settimana con cui la situazione iniziale puo'
         # davvero sovrapporsi, per costruzione).
-        ore_settimana_per_lavoratore = defaultdict(lambda: defaultdict(int))
+        minuti_settimana_per_lavoratore = defaultdict(lambda: defaultdict(int))
         settimane_incontrate = {}  # chiave iso -> (data_inizio, data_fine) per etichette ordinate
 
         if ultimo_input:
@@ -1439,8 +1481,8 @@ if risultato is not None:
             for a in risultato.assegnazioni:
                 data = data_da_indice_periodo(anno_ref, mese_ref, a.giorno)
                 chiave = data.isocalendar()[:2]
-                ore = ore_per_fascia_effettive.get(a.fascia, 0)
-                ore_settimana_per_lavoratore[a.lavoratore_id][chiave] += ore
+                minuti = minuti_per_fascia_effettive.get(a.fascia, 0)
+                minuti_settimana_per_lavoratore[a.lavoratore_id][chiave] += minuti
                 settimane_incontrate.setdefault(chiave, chiave)
 
             for si in ultimo_input.stato_iniziale:
@@ -1450,23 +1492,23 @@ if risultato is not None:
                 chiave = data.isocalendar()[:2]
                 if chiave != chiave_prima_settimana_periodo:
                     continue  # settimana estranea al periodo, mostrata solo per contesto visivo
-                ore = ore_per_fascia_effettive.get(si.fascia, 0)
-                ore_settimana_per_lavoratore[si.lavoratore_id][chiave] += ore
+                minuti = minuti_per_fascia_effettive.get(si.fascia, 0)
+                minuti_settimana_per_lavoratore[si.lavoratore_id][chiave] += minuti
                 settimane_incontrate.setdefault(chiave, chiave)
 
-            # Ore virtuali di ferie: admin forzata (sempre) o richiesta
+            # Minuti virtuali di ferie: admin forzata (sempre) o richiesta
             # soft accolta (solo se non e' tra le non soddisfatte).
             for v in ultimo_input.vincoli_admin:
                 if v.tipo == "ferie":
                     data = data_da_indice_periodo(anno_ref, mese_ref, v.giorno)
                     chiave = data.isocalendar()[:2]
-                    ore_settimana_per_lavoratore[v.lavoratore_id][chiave] += ore_ferie_giornaliere_effettive
+                    minuti_settimana_per_lavoratore[v.lavoratore_id][chiave] += minuti_ferie_giornaliere_effettive
                     settimane_incontrate.setdefault(chiave, chiave)
             for r in ultimo_input.richieste_soft:
                 if r.tipo == "ferie" and r.id not in id_non_soddisfatte:
                     data = data_da_indice_periodo(anno_ref, mese_ref, r.giorno)
                     chiave = data.isocalendar()[:2]
-                    ore_settimana_per_lavoratore[r.lavoratore_id][chiave] += ore_ferie_giornaliere_effettive
+                    minuti_settimana_per_lavoratore[r.lavoratore_id][chiave] += minuti_ferie_giornaliere_effettive
                     settimane_incontrate.setdefault(chiave, chiave)
 
         settimane_ordinate = sorted(settimane_incontrate.keys())
@@ -1476,6 +1518,11 @@ if risultato is not None:
             lun = datetime.date.fromisocalendar(anno_iso, settimana_iso, 1)
             dom = datetime.date.fromisocalendar(anno_iso, settimana_iso, 7)
             return f"Ore sett.{settimana_iso} ({lun.strftime('%d/%m')}-{dom.strftime('%d/%m')})"
+
+        def _minuti_a_ore(minuti: int) -> float:
+            """Converte minuti in ore decimali per la visualizzazione (es.
+            450 minuti -> 7.5 ore), arrotondate a 2 decimali."""
+            return round(minuti / 60, 2)
 
         nome_mese_ref = MESI_IT[mese_ref]
 
@@ -1489,14 +1536,14 @@ if risultato is not None:
                 "M": m, "P": p, "N": n,
                 "Ferie": ferie,
                 "Totale turni": m + p + n,
-                "Ore M": m * ore_per_fascia_effettive.get("M", 0),
-                "Ore P": p * ore_per_fascia_effettive.get("P", 0),
-                "Ore N": n * ore_per_fascia_effettive.get("N", 0),
-                "Ore F": ferie * ore_ferie_giornaliere_effettive,
+                "Ore M": _minuti_a_ore(m * minuti_per_fascia_effettive.get("M", 0)),
+                "Ore P": _minuti_a_ore(p * minuti_per_fascia_effettive.get("P", 0)),
+                "Ore N": _minuti_a_ore(n * minuti_per_fascia_effettive.get("N", 0)),
+                "Ore F": _minuti_a_ore(ferie * minuti_ferie_giornaliere_effettive),
             }
             for chiave in settimane_ordinate:
-                riga[_etichetta_settimana(chiave)] = ore_settimana_per_lavoratore[w].get(chiave, 0)
-            riga[f"Ore mese ({nome_mese_ref})"] = ore_mese_per_lavoratore.get(w, 0)
+                riga[_etichetta_settimana(chiave)] = _minuti_a_ore(minuti_settimana_per_lavoratore[w].get(chiave, 0))
+            riga[f"Ore mese ({nome_mese_ref})"] = _minuti_a_ore(minuti_mese_per_lavoratore.get(w, 0))
             righe_insights.append(riga)
 
         df_insights = pd.DataFrame(righe_insights).set_index("lavoratore_id")

@@ -44,7 +44,7 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      massimo, equivale a un valore fisso obbligatorio. Calcolato dopo i
      livelli 2 e 3 perche' le giornate di FERIE (forzate dall'admin o
      concesse tramite richiesta soft accolta) aggiungono ore "virtuali"
-     al monte ore (regole_contrattuali.ore_ferie_giornaliere, e' comunque
+     al monte ore (regole_contrattuali.minuti_ferie_giornaliere, e' comunque
      tempo retribuito), mentre il RIPOSO non aggiunge nulla. Tutto tiene
      conto di stato_iniziale per i casi a cavallo di mese, incluse le ore
      gia' maturate nella stessa settimana ISO se la settimana e' a
@@ -381,27 +381,29 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     # = 40h > 36h, quindi NON ammissibile anche se il lavoratore ha
     # fisicamente lavorato solo 32 ore.
     # ==================================================================
-    ore_per_fascia = dati.regole_contrattuali.ore_per_fascia
-    ore_ferie_giornaliere = dati.regole_contrattuali.ore_ferie_giornaliere
+    minuti_per_fascia = dati.regole_contrattuali.minuti_per_fascia
+    minuti_ferie_giornaliere = dati.regole_contrattuali.minuti_ferie_giornaliere
     settimane = _raggruppa_per_settimana_iso(dati.periodo.anno, dati.periodo.mese, giorni)
 
-    # Ore gia' maturate nel mese precedente per la stessa settimana ISO:
-    # se la prima settimana del periodo e' a cavallo con l'ultima settimana
-    # del mese precedente, le ore di stato_iniziale che cadono in quella
-    # settimana vanno sommate al conteggio, altrimenti il vincolo settimanale
-    # ignorerebbe turni gia' effettuati nella stessa settimana solare.
-    ore_pregresse_per_settimana: dict[str, dict[tuple[int, int], int]] = {}
+    # Ore gia' maturate nel mese precedente per la stessa settimana ISO,
+    # ESPRESSE IN MINUTI internamente (permette turni con minuti, es.
+    # 7h30m, non solo ore intere): se la prima settimana del periodo e'
+    # a cavallo con l'ultima settimana del mese precedente, i minuti di
+    # stato_iniziale che cadono in quella settimana vanno sommati al
+    # conteggio, altrimenti il vincolo settimanale ignorerebbe turni gia'
+    # effettuati nella stessa settimana solare.
+    minuti_pregressi_per_settimana: dict[str, dict[tuple[int, int], int]] = {}
     for si in dati.stato_iniziale:
         if not si.mese_precedente:
             continue
         data_si = data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
         anno_iso, settimana_iso, _ = data_si.isocalendar()
         chiave = (anno_iso, settimana_iso)
-        ore = ore_per_fascia.get(si.fascia, 0)
-        per_lavoratore = ore_pregresse_per_settimana.setdefault(si.lavoratore_id, {})
-        per_lavoratore[chiave] = per_lavoratore.get(chiave, 0) + ore
+        minuti = minuti_per_fascia.get(si.fascia, 0)
+        per_lavoratore = minuti_pregressi_per_settimana.setdefault(si.lavoratore_id, {})
+        per_lavoratore[chiave] = per_lavoratore.get(chiave, 0) + minuti
 
-    # Giorni di ferie FORZATA dall'admin: contano sempre le ore virtuali,
+    # Giorni di ferie FORZATA dall'admin: contano sempre i minuti virtuali,
     # e' un fatto certo (non condizionato a nessuna variabile del solver).
     ferie_forzata_per_settimana: dict[str, dict[tuple[int, int], int]] = {}
     for vadm in dati.vincoli_admin:
@@ -410,14 +412,15 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         data_v = data_da_indice_periodo(dati.periodo.anno, dati.periodo.mese, vadm.giorno)
         chiave = data_v.isocalendar()[:2]
         per_lavoratore = ferie_forzata_per_settimana.setdefault(vadm.lavoratore_id, {})
-        per_lavoratore[chiave] = per_lavoratore.get(chiave, 0) + ore_ferie_giornaliere
+        per_lavoratore[chiave] = per_lavoratore.get(chiave, 0) + minuti_ferie_giornaliere
 
-    # Richieste soft di ferie: contano le ore virtuali SOLO se la richiesta
-    # viene effettivamente concessa (variabile 'miss' della richiesta == 0).
-    # Usiamo l'espressione (1 - miss) * ore_ferie_giornaliere, che vale
-    # ore_ferie_giornaliere quando miss=0 (concessa) e 0 quando miss=1
-    # (rifiutata, nel qual caso il lavoratore lavora davvero quel giorno e
-    # le sue ore reali sono gia' contate a parte).
+    # Richieste soft di ferie: contano i minuti virtuali SOLO se la
+    # richiesta viene effettivamente concessa (variabile 'miss' della
+    # richiesta == 0). Usiamo l'espressione (1 - miss) *
+    # minuti_ferie_giornaliere, che vale minuti_ferie_giornaliere quando
+    # miss=0 (concessa) e 0 quando miss=1 (rifiutata, nel qual caso il
+    # lavoratore lavora davvero quel giorno e i suoi minuti reali sono
+    # gia' contati a parte).
     ferie_soft_per_settimana: dict[str, dict[tuple[int, int], list]] = {}
     for req in dati.richieste_soft:
         if req.tipo != "ferie" or req.giorno not in giorni or req.lavoratore_id not in lavoratori_ids:
@@ -437,23 +440,29 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         # globale tratterebbe erroneamente 0 (es. lavoratore con contratto
         # sospeso quel mese) come "non impostato", sostituendolo col
         # default in modo silenzioso e sbagliato.
-        min_ore = lavoratore.ore_settimanali_min
-        max_ore = lavoratore.ore_settimanali_max
+        # ore_settimanali_min/max restano espressi in ORE INTERE sul
+        # lavoratore (non serve precisione a livello di minuti per un
+        # totale settimanale) — convertiti in minuti solo qui, al momento
+        # del confronto con i minuti dei singoli turni.
+        min_minuti = lavoratore.ore_settimanali_min * 60
+        max_minuti = lavoratore.ore_settimanali_max * 60
 
         for chiave_settimana, giorni_settimana in settimane.items():
-            ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
-            ore_ferie_forzata = ferie_forzata_per_settimana.get(w, {}).get(chiave_settimana, 0)
+            minuti_gia_maturati = minuti_pregressi_per_settimana.get(w, {}).get(chiave_settimana, 0)
+            minuti_ferie_forzata = ferie_forzata_per_settimana.get(w, {}).get(chiave_settimana, 0)
             miss_vars_ferie_soft = ferie_soft_per_settimana.get(w, {}).get(chiave_settimana, [])
 
-            ore_espr = sum(
-                ore_per_fascia.get(f, 0) * x[(w, g, f)]
+            minuti_espr = sum(
+                minuti_per_fascia.get(f, 0) * x[(w, g, f)]
                 for g in giorni_settimana
                 for f in fasce
             )
-            ore_ferie_soft_espr = sum(
-                ore_ferie_giornaliere * (1 - miss) for miss in miss_vars_ferie_soft
+            minuti_ferie_soft_espr = sum(
+                minuti_ferie_giornaliere * (1 - miss) for miss in miss_vars_ferie_soft
             )
-            ore_totali_settimana = ore_espr + ore_gia_maturate + ore_ferie_forzata + ore_ferie_soft_espr
+            minuti_totali_settimana = (
+                minuti_espr + minuti_gia_maturati + minuti_ferie_forzata + minuti_ferie_soft_espr
+            )
 
             # Intervallo [minimo, massimo]: sotto il minimo non si puo'
             # andare (per garantirlo, il motore puo' assegnare surplus
@@ -478,12 +487,12 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             # non serve toccarlo.
             giorni_disponibili_settimana = len(giorni_settimana)
             if giorni_disponibili_settimana < 7:
-                min_ore_settimana = round(min_ore * giorni_disponibili_settimana / 7)
+                min_minuti_settimana = round(min_minuti * giorni_disponibili_settimana / 7)
             else:
-                min_ore_settimana = min_ore
+                min_minuti_settimana = min_minuti
 
-            model.Add(ore_totali_settimana <= max_ore)
-            model.Add(ore_totali_settimana >= min_ore_settimana)
+            model.Add(minuti_totali_settimana <= max_minuti)
+            model.Add(minuti_totali_settimana >= min_minuti_settimana)
 
     # ==================================================================
     # LIVELLO 4: fairness (soft, priorita' piu' bassa)
@@ -590,35 +599,36 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             tassi_settimana = []
             for w in lavoratori_ids:
                 lavoratore = next(l for l in dati.lavoratori if l.id == w)
-                max_ore_w = lavoratore.ore_settimanali_max
-                ore_gia_maturate = ore_pregresse_per_settimana.get(w, {}).get(chiave_settimana, 0)
-                capacita_residua = max(max_ore_w - ore_gia_maturate, 0)
+                max_minuti_w = lavoratore.ore_settimanali_max * 60
+                minuti_gia_maturati = minuti_pregressi_per_settimana.get(w, {}).get(chiave_settimana, 0)
+                capacita_residua_minuti = max(max_minuti_w - minuti_gia_maturati, 0)
 
-                ore_ferie_forzata = ferie_forzata_per_settimana.get(w, {}).get(chiave_settimana, 0)
+                minuti_ferie_forzata = ferie_forzata_per_settimana.get(w, {}).get(chiave_settimana, 0)
                 miss_vars_ferie_soft = ferie_soft_per_settimana.get(w, {}).get(chiave_settimana, [])
-                ore_ferie_soft_espr = sum(
-                    ore_ferie_giornaliere * (1 - miss) for miss in miss_vars_ferie_soft
+                minuti_ferie_soft_espr = sum(
+                    minuti_ferie_giornaliere * (1 - miss) for miss in miss_vars_ferie_soft
                 )
 
-                # Le ore "nuove" includono anche le ore virtuali di ferie:
-                # un lavoratore in ferie ha comunque "consumato" la sua
-                # capacita' quella settimana, non e' sottoutilizzato solo
-                # perche' non ha fisicamente lavorato quel giorno.
-                ore_nuove_w = model.NewIntVar(0, max_ore_w, f"ore_nuove_{chiave_settimana}_{w}")
+                # I minuti "nuovi" includono anche i minuti virtuali di
+                # ferie: un lavoratore in ferie ha comunque "consumato" la
+                # sua capacita' quella settimana, non e' sottoutilizzato
+                # solo perche' non ha fisicamente lavorato quel giorno.
+                minuti_nuovi_w = model.NewIntVar(0, max_minuti_w, f"minuti_nuovi_{chiave_settimana}_{w}")
                 model.Add(
-                    ore_nuove_w
-                    == sum(ore_per_fascia.get(f, 0) * x[(w, g, f)] for g in giorni_settimana for f in fasce)
-                    + ore_ferie_forzata + ore_ferie_soft_espr
+                    minuti_nuovi_w
+                    == sum(minuti_per_fascia.get(f, 0) * x[(w, g, f)] for g in giorni_settimana for f in fasce)
+                    + minuti_ferie_forzata + minuti_ferie_soft_espr
                 )
 
-                if capacita_residua > 0:
+                if capacita_residua_minuti > 0:
                     tasso_w = model.NewIntVar(0, SCALE, f"tasso_ore_{chiave_settimana}_{w}")
-                    model.AddDivisionEquality(tasso_w, ore_nuove_w * SCALE, capacita_residua)
+                    model.AddDivisionEquality(tasso_w, minuti_nuovi_w * SCALE, capacita_residua_minuti)
                     tassi_settimana.append(tasso_w)
-                # Se capacita_residua == 0 (rarissimo: ha gia' esaurito il
-                # monte ore solo con stato_iniziale), il vincolo hard altrove
-                # gli impedisce comunque nuovi turni quella settimana; lo
-                # escludiamo dal confronto proporzionale (divisione per zero).
+                # Se capacita_residua_minuti == 0 (rarissimo: ha gia'
+                # esaurito il monte ore solo con stato_iniziale), il
+                # vincolo hard altrove gli impedisce comunque nuovi turni
+                # quella settimana; lo escludiamo dal confronto
+                # proporzionale (divisione per zero).
 
             if len(tassi_settimana) >= 2:
                 max_t = model.NewIntVar(0, SCALE, f"max_tasso_ore_{chiave_settimana}")

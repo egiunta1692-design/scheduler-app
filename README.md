@@ -289,14 +289,29 @@ garantirlo), sopra il massimo nemmeno. Se minimo e massimo coincidono,
 le ore sono obbligatoriamente uguali a quel valore unico (comportamento
 "a valore fisso", utile se il contratto prevede un numero di ore preciso
 senza flessibilita'). **Sempre specifico per singolo lavoratore**
-(`lavoratore.ore_settimanali_min` / `ore_settimanali_max`, nessun
-fallback su un default globale — un valore 0 viene rispettato
-letteralmente, non sostituito silenziosamente), calcolato su settimane
-calendario lun-dom (ore per fascia configurabili, default 8h per M/P,
-10h per N). Se la prima settimana del periodo e' a cavallo con l'ultima
-settimana del mese precedente, le ore gia' maturate in `stato_iniziale`
-in quella settimana vengono sommate al conteggio. Vedi anche "Ferie vs
-riposo" sotto per come contano le giornate di ferie.
+(`lavoratore.ore_settimanali_min` / `ore_settimanali_max`, espressi in
+ore intere, nessun fallback su un default globale — un valore 0 viene
+rispettato letteralmente, non sostituito silenziosamente), calcolato su
+settimane calendario lun-dom. Se la prima settimana del periodo e' a
+cavallo con l'ultima settimana del mese precedente, le ore gia' maturate
+in `stato_iniziale` in quella settimana vengono sommate al conteggio.
+Vedi anche "Ferie vs riposo" sotto per come contano le giornate di ferie.
+
+**Durata dei turni e delle ferie in ore E minuti**: la durata di
+ciascuna fascia (`regole_contrattuali.minuti_per_fascia`, default M=8h,
+P=8h, N=10h) e le ore virtuali di ferie
+(`regole_contrattuali.minuti_ferie_giornaliere`, default 8h) sono
+espresse **internamente in minuti**, non solo ore intere — permette
+turni come 7h30m (450 minuti), non solo valori tondi. Nell'interfaccia,
+ciascuna di queste durate ha due campi affiancati ("Ore" e "Minuti"),
+combinati in minuti totali alla generazione dei turni. Il monte ore
+settimanale (`ore_settimanali_min`/`max` sul lavoratore) resta invece in
+ore intere — la conversione in minuti avviene automaticamente al
+momento del confronto (es. 36h -> 2160 minuti), senza bisogno di
+configurarlo separatamente. Le tabelle di riepilogo ("Turni per
+lavoratore", grafico "Equilibrio del carico") mostrano le ore in
+**formato decimale** (es. 7.5 per 7h30m), non in formato "7h 30m",
+per restare compatibili con somme ed export CSV.
 
 **Nota**: un minimo troppo alto rispetto ai giorni/turni disponibili
 (es. superiore a quanto ottenibile anche lavorando ogni giorno) rende il

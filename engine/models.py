@@ -75,13 +75,18 @@ class RegoleContrattuali:
     # singolarmente) grazie a come il vincolo viene costruito nel motore.
     giorni_riposo_dopo_notte: int = 2
     max_giorni_consecutivi_lavorati: int = 6
-    ore_per_fascia: dict[Fascia, int] = field(
-        default_factory=lambda: {"M": 8, "P": 8, "N": 10}
+    # Durata di ciascuna fascia in MINUTI (non ore): permette di
+    # configurare turni con minuti (es. 7h30m = 450), non solo ore intere.
+    # Nome esplicito "minuti_" invece di "ore_" per rendere l'unita' di
+    # misura inequivocabile — un errore di unita' qui si propagherebbe
+    # silenziosamente in tutto il calcolo delle ore settimanali.
+    minuti_per_fascia: dict[Fascia, int] = field(
+        default_factory=lambda: {"M": 480, "P": 480, "N": 600}  # 8h, 8h, 10h
     )
-    # Ore "virtuali" che una giornata di ferie aggiunge al monte ore
+    # Minuti "virtuali" che una giornata di ferie aggiunge al monte ore
     # settimanale del lavoratore (per contratto), distinte dal riposo che
     # non aggiunge nulla. Valore unico per tutto il reparto.
-    ore_ferie_giornaliere: int = 8
+    minuti_ferie_giornaliere: int = 480  # 8h
 
 
 @dataclass
