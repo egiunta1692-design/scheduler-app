@@ -182,10 +182,25 @@ Premi "Genera turni" per vedere:
   virtuali equivalenti. Le colonne "Ore sett.N" includono le ore
   effettivamente lavorate **piu' le ore virtuali di ferie** (stesso
   criterio usato dal motore per il vincolo di ore settimanali), oltre
-  alla situazione iniziale e agli eventuali giorni nel mese successivo.
-  "Ore mese" conta invece solo le ore effettivamente lavorate nel mese
-  di riferimento (non include le ore virtuali di ferie, a differenza di
-  "Ore sett.N")
+  alla situazione iniziale **della stessa settimana ISO del periodo** e
+  agli eventuali giorni nel mese successivo. "Ore mese" conta invece
+  solo le ore effettivamente lavorate nel mese di riferimento (non
+  include le ore virtuali di ferie, a differenza di "Ore sett.N")
+
+  **Nota su un bug corretto**: la griglia mostra sempre almeno
+  `GIORNI_STATO_INIZIALE_MINIMO` giorni di situazione iniziale per
+  motivi di leggibilita' (completare la settimana calendario a schermo);
+  quando il mese inizia lun-ven, questo puo' includere giorni di una
+  settimana ISO **precedente** a quella del periodo (es. mese che inizia
+  mercoledi': i primi 2 dei 4 giorni mostrati cadono nella settimana
+  prima, che il motore non pianifica affatto). Prima della correzione,
+  queste voci comparivano come una colonna "Ore settimana" per una
+  settimana completamente estranea al periodo. Il motore stesso non ne
+  e' mai stato affetto (consulta le ore pregresse solo per le settimane
+  che ha effettivamente in pianificazione, quindi il calcolo dei turni
+  e' sempre stato corretto) — era un problema solo di visualizzazione,
+  corretto scartando dal conteggio le voci di situazione iniziale la cui
+  settimana ISO non coincide con quella del primo giorno del periodo.
 - le richieste non soddisfatte
 - **Equilibrio del carico tra lavoratori**: grafico a barre orizzontali
   (lavoratori sull'asse verticale, ore su quello orizzontale) con le ore

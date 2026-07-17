@@ -1411,14 +1411,31 @@ if risultato is not None:
         # Ore per settimana ISO (lun-dom), per lavoratore: qui invece
         # includiamo DI PROPOSITO sia le assegnazioni del periodo esteso
         # (anche i giorni nel mese successivo) sia le ore di situazione
-        # iniziale che cadono nella stessa settimana solare, PIU' le ore
-        # virtuali di ferie (stesso criterio usato dal motore per il
-        # vincolo di ore settimanali — se non le contassimo qui, questa
-        # tabella non rispecchierebbe fedelmente cosa succede internamente).
+        # iniziale che cadono nella STESSA settimana solare del periodo,
+        # PIU' le ore virtuali di ferie (stesso criterio usato dal motore
+        # per il vincolo di ore settimanali — se non le contassimo qui,
+        # questa tabella non rispecchierebbe fedelmente cosa succede
+        # internamente).
+        #
+        # ATTENZIONE: la griglia mostra sempre almeno
+        # GIORNI_STATO_INIZIALE_MINIMO giorni di situazione iniziale per
+        # motivi di leggibilita' (completare la settimana calendario a
+        # schermo), ma quando il mese inizia lun-ven questo puo' includere
+        # giorni di una settimana ISO PRECEDENTE a quella del periodo (es.
+        # mese che inizia mercoledi': i primi 2 dei 4 giorni mostrati
+        # cadono nella settimana prima, che il motore non sta affatto
+        # pianificando). Queste voci vanno escluse dal conteggio, altrimenti
+        # comparirebbe una colonna "Ore settimana" per una settimana
+        # completamente estranea al periodo — scartate qui confrontando la
+        # settimana ISO di ciascuna voce con quella del primo giorno del
+        # periodo (l'unica settimana con cui la situazione iniziale puo'
+        # davvero sovrapporsi, per costruzione).
         ore_settimana_per_lavoratore = defaultdict(lambda: defaultdict(int))
         settimane_incontrate = {}  # chiave iso -> (data_inizio, data_fine) per etichette ordinate
 
         if ultimo_input:
+            chiave_prima_settimana_periodo = data_da_indice_periodo(anno_ref, mese_ref, 1).isocalendar()[:2]
+
             for a in risultato.assegnazioni:
                 data = data_da_indice_periodo(anno_ref, mese_ref, a.giorno)
                 chiave = data.isocalendar()[:2]
@@ -1431,6 +1448,8 @@ if risultato is not None:
                     continue
                 data = data_da_indice_mese_precedente(anno_ref, mese_ref, si.giorno)
                 chiave = data.isocalendar()[:2]
+                if chiave != chiave_prima_settimana_periodo:
+                    continue  # settimana estranea al periodo, mostrata solo per contesto visivo
                 ore = ore_per_fascia_effettive.get(si.fascia, 0)
                 ore_settimana_per_lavoratore[si.lavoratore_id][chiave] += ore
                 settimane_incontrate.setdefault(chiave, chiave)
