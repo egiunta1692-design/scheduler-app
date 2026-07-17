@@ -957,3 +957,136 @@ def test_ore_settimanali_minimo_irraggiungibile_da_infeasible():
 
     risultato = genera_turni(dati)
     assert risultato.stato == "infeasible"
+
+
+# ---------------------------------------------------------------------------
+# Giorni di riposo dopo la notte: default 2 (non piu' 1), configurabile
+# ---------------------------------------------------------------------------
+
+def test_due_giorni_riposo_dopo_singola_notte_default():
+    """Con il default (2 giorni), anche il SECONDO giorno dopo una notte
+    resta bloccato per M/P (non solo il primo, come con la vecchia regola
+    a 1 giorno). Lo verifichiamo rendendo quel turno obbligatorio per
+    l'unico lavoratore disponibile: se il vincolo non fosse esteso a 2
+    giorni il problema risulterebbe risolvibile invece che infeasible
+    (vedi anche test_giorni_riposo_dopo_notte_configurabile_a_1, stesso
+    scenario ma con giorni_riposo_dopo_notte=1, che invece deve restare
+    risolvibile — le due prove insieme dimostrano l'effetto esatto del
+    parametro)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_riposo_2gg",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=3),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=3, fascia="M", minimo=1),  # secondo giorno dopo la notte
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="N"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),  # default: giorni_riposo_dopo_notte=2
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Con il default di 2 giorni di riposo, anche il secondo giorno "
+        "dopo la notte (giorno 3) dovrebbe restare bloccato per l'unico "
+        "lavoratore disponibile, rendendo impossibile coprire il "
+        "fabbisogno di quel giorno"
+    )
+
+
+def test_riposo_dopo_serie_di_notti_si_applica_dopo_l_ultima():
+    """Con 2 notti consecutive (giorno 1 e 2) e 2 giorni di riposo di
+    default, il riposo deve applicarsi DOPO L'ULTIMA notte (giorno 2),
+    quindi i giorni 3 e 4 non possono essere M/P — non dopo ognuna
+    singolarmente (altrimenti si bloccherebbe anche il giorno 5, che
+    invece deve restare libero di essere M/P).
+
+    Per verificarlo in modo deterministico (senza dover indovinare quale
+    lavoratore il motore sceglie), il giorno 5 richiede ENTRAMBI i
+    lavoratori su M: se il vincolo si applicasse erroneamente anche li',
+    il problema diventerebbe infeasible."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_riposo_serie",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=5),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=0, ore_settimanali_max=40),
+            Lavoratore(id="w2", nome="Backup", ore_settimanali_min=0, ore_settimanali_max=40),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="N", minimo=1),
+            Fabbisogno(giorno=2, fascia="N", minimo=1),
+            Fabbisogno(giorno=5, fascia="M", minimo=2),  # entrambi obbligatori
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="N"),
+            VincoloAdmin(id="adm2", lavoratore_id="w1", giorno=2, tipo="turno", fascia="N"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
+        "Se il giorno 5 fosse erroneamente bloccato per w1 (rest esteso "
+        "oltre l'ultima notte), coprire M con entrambi i lavoratori "
+        "sarebbe impossibile e il problema risulterebbe infeasible"
+    )
+
+    for g in (3, 4):
+        assegnazione = next(
+            (a.fascia for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.giorno == g),
+            None,
+        )
+        assert assegnazione not in ("M", "P"), (
+            f"w1 ha fatto 2 notti (giorni 1-2): il giorno {g} non dovrebbe "
+            f"poter essere M/P"
+        )
+
+    assegnazione_g5_w1 = next(
+        (a.fascia for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.giorno == 5),
+        None,
+    )
+    assert assegnazione_g5_w1 == "M", "w1 doveva coprire M il giorno 5 (richiesto da entrambi)"
+
+
+def test_giorni_riposo_dopo_notte_configurabile_a_1():
+    """Verifica che il parametro sia davvero configurabile: con
+    giorni_riposo_dopo_notte=1 (comportamento precedente), solo il primo
+    giorno dopo la notte resta bloccato — il SECONDO giorno dopo la
+    notte torna libero (a differenza del nuovo default 2, che lo
+    bloccherebbe anch'esso)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_riposo_1gg",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=3),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=0, ore_settimanali_max=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=3, fascia="M", minimo=1),  # secondo giorno dopo la notte
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="N"),
+        ],
+        regole_contrattuali=RegoleContrattuali(giorni_riposo_dopo_notte=1),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible", (
+        "Con giorni_riposo_dopo_notte=1, il giorno 3 (secondo dopo la "
+        "notte) dovrebbe essere libero per w1 (unico lavoratore): se il "
+        "problema risulta infeasible, il parametro non sta riducendo "
+        "correttamente la finestra di riposo"
+    )
+
+    assegnazione_g3 = next(
+        (a.fascia for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.giorno == 3),
+        None,
+    )
+    assert assegnazione_g3 == "M", (
+        "Con giorni_riposo_dopo_notte=1, il giorno 3 dovrebbe poter essere M"
+    )

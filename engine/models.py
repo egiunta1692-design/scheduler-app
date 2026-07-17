@@ -68,6 +68,12 @@ class RegoleContrattuali:
     max_notti_consecutive: int = 2
     min_riposo_ore_dopo_turno: int = 11
     vietato_dopo_notte: list[Fascia] = field(default_factory=lambda: ["M", "P"])
+    # Numero di giorni di riposo obbligatorio dopo un turno notturno (o
+    # dopo l'ultima notte di una serie consecutiva): default 2, non 1.
+    # Si applica in cascata anche dopo serie di notti consecutive (es. 2
+    # notti di fila -> 2 giorni di riposo dopo l'ultima, non dopo ognuna
+    # singolarmente) grazie a come il vincolo viene costruito nel motore.
+    giorni_riposo_dopo_notte: int = 2
     max_giorni_consecutivi_lavorati: int = 6
     ore_per_fascia: dict[Fascia, int] = field(
         default_factory=lambda: {"M": 8, "P": 8, "N": 10}

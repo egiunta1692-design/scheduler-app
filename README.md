@@ -149,8 +149,13 @@ Premi "Genera turni" per vedere:
 **Livello 1 - vincoli strutturali di sistema (sempre hard):**
 - un lavoratore fa al massimo una fascia (M/P/N) al giorno
 - copertura minima di personale per giorno/fascia (fabbisogno)
-- riposo obbligatorio dopo un turno notturno (no M/P il giorno dopo N,
-  fasce configurabili via `regole_contrattuali.vietato_dopo_notte`)
+- **riposo obbligatorio dopo un turno notturno, o dopo l'ultima notte di
+  una serie consecutiva**: default **2 giorni** (non piu' 1), configurabile
+  via `regole_contrattuali.giorni_riposo_dopo_notte` (fasce bloccate
+  configurabili separatamente via `vietato_dopo_notte`, default M/P). Con
+  serie di notti consecutive, il riposo si applica correttamente dopo
+  l'ULTIMA notte della serie (non dopo ognuna singolarmente), grazie alla
+  sovrapposizione naturale dei blocchi giorno per giorno
 - vincolo personale "mai notti" (`lavoratore.vincoli_personali.mai_notti`)
 - massimo notti consecutive (default 2, override possibile per singolo
   lavoratore)
@@ -162,11 +167,11 @@ Premi "Genera turni" per vedere:
 - "turno" forzato -> fascia specifica imposta
 - **ferie e riposo bloccano allo stesso modo, ma non sono equivalenti**:
   vedi "Ferie vs riposo" sotto per la differenza sul monte ore
-- **niente notte il giorno prima di una ferie forzata**: il giorno di
-  stop dopo una notte (o serie di notti) e' un riposo fisiologico
-  obbligatorio, non sostituibile da una ferie — il motore lo impedisce
-  anche se inserito per errore, cercando un'altra soluzione (es.
-  assegnando quella notte a un altro lavoratore)
+- **niente notte nei `giorni_riposo_dopo_notte` giorni prima di una ferie
+  forzata**: il giorno di stop dopo una notte (o serie di notti) e' un
+  riposo fisiologico obbligatorio, non sostituibile da una ferie — il
+  motore lo impedisce anche se inserito per errore, cercando un'altra
+  soluzione (es. assegnando quella notte a un altro lavoratore)
 - nota: la validazione preventiva di conflitti tra vincoli admin e il
   meccanismo di declassamento automatico sono rimandati a una fase
   successiva (come deciso insieme)

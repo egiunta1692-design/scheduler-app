@@ -6,7 +6,10 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
   1. VINCOLI STRUTTURALI DI SISTEMA (sempre hard):
      - un lavoratore fa al massimo una fascia al giorno
      - copertura minima per giorno/fascia (fabbisogno)
-     - riposo obbligatorio dopo un turno notturno
+     - riposo obbligatorio dopo un turno notturno (default 2 giorni,
+       configurabile via regole_contrattuali.giorni_riposo_dopo_notte;
+       si applica correttamente anche dopo serie di notti consecutive,
+       coprendo i giorni dopo l'ULTIMA notte della serie)
      - vincolo personale "mai notti" (lavoratore.vincoli_personali.mai_notti)
      - massimo notti consecutive (con override personale possibile)
      (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
@@ -142,15 +145,30 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 sum(x[(w, fab.giorno, fab.fascia)] for w in lavoratori_ids) >= fab.minimo
             )
 
-    # Riposo obbligatorio dopo un turno notturno
+    # Riposo obbligatorio dopo un turno notturno: per default 2 giorni
+    # (configurabile), non 1. Applichiamo il blocco per ciascun giorno di
+    # notte, esteso ai N giorni successivi — se ci sono piu' notti
+    # consecutive (fino al massimo consentito), i blocchi si sovrappongono
+    # e "si compongono" automaticamente in modo corretto: es. con 2 notti
+    # di fila e 2 giorni di riposo richiesti, il blocco della prima notte
+    # copre i due giorni successivi (di cui il primo e' comunque un'altra
+    # notte, quindi il blocco su quel giorno e' ininfluente per M/P) e il
+    # blocco della seconda notte copre i due giorni dopo di lei — il
+    # risultato netto e' esattamente "2 giorni di riposo dopo l'ULTIMA
+    # notte della serie", senza dover rilevare esplicitamente dove finisce
+    # la serie.
     vietato_dopo_notte = dati.regole_contrattuali.vietato_dopo_notte
+    giorni_riposo_dopo_notte = max(dati.regole_contrattuali.giorni_riposo_dopo_notte, 1)
     for w in lavoratori_ids:
         for g in giorni:
-            giorno_dopo = g + 1
-            if giorno_dopo in giorni and "N" in fasce:
-                for f in vietato_dopo_notte:
-                    if f in fasce:
-                        model.Add(x[(w, giorno_dopo, f)] == 0).OnlyEnforceIf(x[(w, g, "N")])
+            if "N" not in fasce:
+                continue
+            for offset in range(1, giorni_riposo_dopo_notte + 1):
+                giorno_riposo = g + offset
+                if giorno_riposo in giorni:
+                    for f in vietato_dopo_notte:
+                        if f in fasce:
+                            model.Add(x[(w, giorno_riposo, f)] == 0).OnlyEnforceIf(x[(w, g, "N")])
 
     data_inizio_periodo = datetime.date(dati.periodo.anno, dati.periodo.mese, dati.periodo.giorno_inizio)
     data_giorno_prima_periodo = data_inizio_periodo - datetime.timedelta(days=1)
@@ -158,10 +176,16 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     for si in dati.stato_iniziale:
         if si.mese_precedente and si.fascia == "N":
             data_si = data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
-            if data_si == data_giorno_prima_periodo:
+            for offset in range(1, giorni_riposo_dopo_notte + 1):
+                data_da_bloccare = data_si + datetime.timedelta(days=offset)
+                if data_da_bloccare < data_inizio_periodo:
+                    continue  # ancora nel mese precedente, non e' una nostra variabile
+                indice_periodo = dati.periodo.giorno_inizio + (data_da_bloccare - data_inizio_periodo).days
+                if indice_periodo not in giorni:
+                    continue
                 for f in vietato_dopo_notte:
                     if f in fasce and si.lavoratore_id in lavoratori_ids:
-                        model.Add(x[(si.lavoratore_id, dati.periodo.giorno_inizio, f)] == 0)
+                        model.Add(x[(si.lavoratore_id, indice_periodo, f)] == 0)
 
     # Vincolo personale "mai notti": alcuni lavoratori (es. per motivi di
     # salute) non possono mai fare il turno N. Questo campo esisteva gia'
@@ -224,24 +248,26 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             for f in fasce:
                 model.Add(x[(vadm.lavoratore_id, vadm.giorno, f)] == 0)
 
-            # Il giorno di riposo dopo una notte e' fisiologico, non puo'
-            # essere "sostituito" da una ferie: se il giorno X e' ferie
-            # forzata, il giorno X-1 non puo' essere notte (altrimenti la
-            # ferie starebbe coprendo il riposo obbligatorio invece di
-            # essere un giorno di assenza vero e proprio). Vale solo per
-            # la ferie, non per il riposo: il riposo E' esattamente cio'
-            # che ci si aspetta dopo una notte, non va impedito li'.
+            # Il riposo dopo una notte (o serie di notti) e' fisiologico,
+            # non puo' essere "sostituito" da una ferie: se il giorno X e'
+            # ferie forzata, nessuno dei giorni_riposo_dopo_notte giorni
+            # precedenti puo' essere notte (altrimenti la ferie starebbe
+            # coprendo un giorno di riposo obbligatorio invece di essere
+            # un giorno di assenza vero e proprio). Vale solo per la
+            # ferie, non per il riposo: il riposo E' esattamente cio' che
+            # ci si aspetta dopo una notte, non va impedito li'.
             if vadm.tipo == "ferie" and "N" in fasce:
-                giorno_prima = vadm.giorno - 1
-                if giorno_prima in giorni:
-                    model.Add(x[(vadm.lavoratore_id, giorno_prima, "N")] == 0)
-                # Nota: se il giorno prima e' fuori periodo (in
-                # stato_iniziale), un'eventuale notte gia' effettuata li'
-                # e' un fatto storico che non possiamo cambiare — un
-                # conflitto in tal caso andrebbe segnalato dall'utente,
-                # la validazione automatica di questo caso specifico non
-                # e' ancora implementata (vedi nota sopra sulla
-                # validazione preventiva rimandata).
+                for offset in range(1, giorni_riposo_dopo_notte + 1):
+                    giorno_prima = vadm.giorno - offset
+                    if giorno_prima in giorni:
+                        model.Add(x[(vadm.lavoratore_id, giorno_prima, "N")] == 0)
+                    # Nota: se il giorno e' fuori periodo (in
+                    # stato_iniziale), un'eventuale notte gia' effettuata
+                    # li' e' un fatto storico che non possiamo cambiare —
+                    # un conflitto in tal caso andrebbe segnalato
+                    # dall'utente, la validazione automatica di questo
+                    # caso specifico non e' ancora implementata (vedi
+                    # nota sopra sulla validazione preventiva rimandata).
 
         elif vadm.tipo == "turno" and vadm.fascia in fasce:
             model.Add(x[(vadm.lavoratore_id, vadm.giorno, vadm.fascia)] == 1)
@@ -269,14 +295,16 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 model.Add(miss >= x[(req.lavoratore_id, req.giorno, f)])
 
             # Stessa logica del vincolo admin sopra: se la richiesta di
-            # FERIE viene concessa (miss == 0), il giorno prima non puo'
-            # essere notte — il motore dovra' quindi valutare se concedere
-            # la ferie vale la pena di ri-assegnare quella notte a
+            # FERIE viene concessa (miss == 0), nessuno dei
+            # giorni_riposo_dopo_notte giorni precedenti puo' essere
+            # notte — il motore dovra' quindi valutare se concedere la
+            # ferie vale la pena di ri-assegnare quelle notti a
             # qualcun altro, invece di ignorare il problema.
             if req.tipo == "ferie" and "N" in fasce:
-                giorno_prima = req.giorno - 1
-                if giorno_prima in giorni:
-                    model.Add(x[(req.lavoratore_id, giorno_prima, "N")] == 0).OnlyEnforceIf(miss.Not())
+                for offset in range(1, giorni_riposo_dopo_notte + 1):
+                    giorno_prima = req.giorno - offset
+                    if giorno_prima in giorni:
+                        model.Add(x[(req.lavoratore_id, giorno_prima, "N")] == 0).OnlyEnforceIf(miss.Not())
 
         elif req.tipo == "turno" and req.fascia in fasce:
             # "miss" = 1 se NON gli viene assegnata la fascia richiesta

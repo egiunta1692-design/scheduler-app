@@ -403,6 +403,7 @@ def _init_state():
 
     st.session_state.regole = {
         "max_notti_consecutive": demo.regole_contrattuali.max_notti_consecutive,
+        "giorni_riposo_dopo_notte": demo.regole_contrattuali.giorni_riposo_dopo_notte,
         "ore_M": demo.regole_contrattuali.ore_per_fascia.get("M", 8),
         "ore_P": demo.regole_contrattuali.ore_per_fascia.get("P", 8),
         "ore_N": demo.regole_contrattuali.ore_per_fascia.get("N", 10),
@@ -571,6 +572,18 @@ with tab_regole:
         st.subheader("Regole contrattuali")
         st.session_state.regole["max_notti_consecutive"] = st.number_input(
             "Massimo notti consecutive", value=st.session_state.regole["max_notti_consecutive"], min_value=1, max_value=5
+        )
+        st.session_state.regole["giorni_riposo_dopo_notte"] = st.number_input(
+            "Giorni di riposo dopo la notte (o serie di notti)",
+            value=st.session_state.regole["giorni_riposo_dopo_notte"], min_value=1, max_value=5,
+            help=(
+                "Numero di giorni di riposo obbligatorio dopo un turno "
+                "notturno, o dopo l'ultima notte di una serie consecutiva "
+                "(non dopo ognuna singolarmente). Si applica anche al "
+                "divieto di ferie nei giorni precedenti una notte: con 2 "
+                "giorni, ne' il giorno prima ne' quello 2 giorni prima di "
+                "una ferie possono essere notte."
+            ),
         )
         st.session_state.regole["ore_M"] = st.number_input(
             "Ore turno Mattino", value=st.session_state.regole["ore_M"], min_value=1, max_value=12
@@ -996,6 +1009,7 @@ def _costruisci_input() -> InputTurnazione:
 
     regole = RegoleContrattuali(
         max_notti_consecutive=int(st.session_state.regole["max_notti_consecutive"]),
+        giorni_riposo_dopo_notte=int(st.session_state.regole["giorni_riposo_dopo_notte"]),
         ore_per_fascia={
             "M": int(st.session_state.regole["ore_M"]),
             "P": int(st.session_state.regole["ore_P"]),
