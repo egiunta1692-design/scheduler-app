@@ -96,6 +96,18 @@ griglie e tabelle, mostra anche il giorno della settimana**
      iniziale diversi) — le celle gia' modificate o deliberatamente
      svuotate dall'utente non vengono mai sovrascritte.
 
+     **Nota**: la vera difesa contro l'infeasibility da settimana
+     parziale e' la proporzione automatica del minimo ore (vedi "Monte
+     ore settimanale" sopra) — un meccanismo strutturale che non dipende
+     dal contenuto della situazione iniziale. Il pattern di default qui
+     sopra resta comunque utile come punto di partenza realistico
+     (invece di celle vuote), ma da solo — si e' verificato in pratica —
+     non basta sempre a garantire la risolvibilita': un calcolo manuale
+     su un caso reale ha mostrato che un pattern "furbo" richiede di
+     tracciare correttamente troppe interazioni delicate (riposo residuo
+     dalla situazione iniziale + riposo di eventuali nuove notti + tetto
+     massimo + minimo) per essere una base affidabile da solo.
+
      **Esporta / Importa CSV** (espansione sopra la griglia): scarica la
      griglia come CSV per modificarla comodamente in Excel o Notepad
      (colonne 'S&lt;n&gt;' = giorni del mese precedente, colonne numeriche =
@@ -259,6 +271,21 @@ riposo" sotto per come contano le giornate di ferie.
 (es. superiore a quanto ottenibile anche lavorando ogni giorno) rende il
 problema `infeasible`, coerentemente con lo stesso comportamento gia'
 in uso per gli altri vincoli hard del motore.
+
+**Settimane parziali — il minimo si proporziona automaticamente.** Se
+il mese non inizia di lunedi', la prima settimana del periodo ha meno
+di 7 giorni controllabili (es. mese che inizia mercoledi' -> solo 5
+giorni; l'ultima settimana e' invece sempre completa, perche' il
+periodo si estende fino alla domenica). Un minimo pensato per una
+settimana intera (es. 32h su 7 giorni) puo' diventare fisicamente
+irraggiungibile in una settimana corta — specialmente per chi copre un
+turno notturno, che impone poi 2 giorni di riposo pieno e riduce
+ulteriormente i giorni disponibili. Per questo, **solo il minimo**
+(mai il massimo — un tetto piu' alto del necessario non causa mai
+infeasibility) viene proporzionato ai giorni davvero disponibili:
+`minimo_proporzionato = round(minimo × giorni_disponibili / 7)`. Per
+una settimana da 5 giorni con minimo 32h: 32×5/7 ≈ **23h** invece di
+32h.
 
 **Ferie vs riposo — differenza sul monte ore:**
 entrambe bloccano i turni allo stesso identico modo, ma non sono

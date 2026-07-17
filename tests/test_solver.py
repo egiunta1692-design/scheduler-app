@@ -1151,3 +1151,66 @@ def test_due_notti_consecutive_poi_pausa_singola_non_permessa():
         "Serie di 2 notti (giorni 1-2) seguita da una sola pausa (giorno "
         "3) non dovrebbe permettere un'altra notte il giorno 4"
     )
+
+
+# ---------------------------------------------------------------------------
+# Minimo ore settimanali proporzionato nelle settimane parziali
+# ---------------------------------------------------------------------------
+
+def test_minimo_ore_proporzionato_in_settimana_parziale():
+    """Luglio 2026 inizia di mercoledi': la prima settimana del periodo
+    ha solo 5 giorni disponibili (1-5 luglio), non 7. Un lavoratore che fa
+    una notte il primo giorno (10h + 2 giorni di riposo pieno + al
+    massimo 2 giorni residui = 26h max) non potrebbe MAI raggiungere un
+    minimo di 32h pensato per una settimana intera — ma con la
+    proporzione (32*5/7 ~= 23h) diventa raggiungibile."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_prorata",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=5),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=32, ore_settimanali_max=40),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="N", minimo=1),
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="N"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
+        "Con il minimo proporzionato (~23h su 5 giorni), un lavoratore che "
+        "fa notte il primo giorno (max 26h ottenibili in questa settimana "
+        "corta) dovrebbe riuscire a raggiungere il minimo. Senza la "
+        "proporzione (minimo 32h pieno) sarebbe rimasto sotto e il "
+        "problema sarebbe infeasible"
+    )
+
+
+def test_minimo_ore_non_proporzionato_in_settimana_completa():
+    """Le settimane con 7 giorni pieni nel periodo NON devono essere
+    proporzionate: un minimo volutamente irraggiungibile (100h) deve
+    restare infeasible, non essere silenziosamente ridotto."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_no_prorata",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),  # 1 giu 2026 = lunedi', settimana piena
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=100, ore_settimanali_max=100),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Con una settimana PIENA (7 giorni), il minimo non deve essere "
+        "proporzionato: un minimo irraggiungibile (100h) deve restare "
+        "infeasible, non essere silenziosamente ridotto a qualcosa di "
+        "raggiungibile"
+    )

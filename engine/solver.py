@@ -48,7 +48,20 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      tempo retribuito), mentre il RIPOSO non aggiunge nulla. Tutto tiene
      conto di stato_iniziale per i casi a cavallo di mese, incluse le ore
      gia' maturate nella stessa settimana ISO se la settimana e' a
-     cavallo con il mese precedente
+     cavallo con il mese precedente.
+
+     SETTIMANE PARZIALI: se la prima settimana del periodo ha meno di 7
+     giorni controllabili (il mese non inizia di lunedi' — l'ultima
+     settimana e' invece sempre completa, dato che il periodo si estende
+     fino alla domenica), il MINIMO viene proporzionato ai giorni
+     davvero disponibili (min_prorata = round(min * giorni/7)). Il
+     MASSIMO non viene mai proporzionato (un tetto piu' alto del
+     necessario non causa mai infeasibility, semplicemente non viene
+     raggiunto). Senza questa proporzione, un minimo pensato per una
+     settimana intera puo' diventare fisicamente irraggiungibile in una
+     settimana corta — specialmente per chi copre un turno notturno, che
+     impone poi 2 giorni di riposo pieno e riduce ulteriormente i giorni
+     disponibili.
 
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza la SOMMA degli scarti di ciascun lavoratore dalla MEDIA del
@@ -448,8 +461,29 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             # di copertura, che e' un ">=", non un "="), sopra il massimo
             # nemmeno. Se minimo == massimo, questo equivale a un vincolo
             # di uguaglianza esatta (comportamento "a valore fisso").
+            #
+            # ECCEZIONE per le settimane PARZIALI (meno di 7 giorni
+            # controllabili nel periodo — tipicamente solo la prima, se il
+            # mese non inizia di lunedi'; l'ultima e' sempre completa
+            # perche' il periodo si estende fino alla domenica): il minimo
+            # viene proporzionato ai giorni davvero disponibili, altrimenti
+            # un minimo pensato per una settimana intera (es. 32h su 7
+            # giorni) puo' diventare fisicamente irraggiungibile in una
+            # settimana da 5 giorni — specialmente per chi deve coprire un
+            # turno notturno, che impone poi 2 giorni di riposo pieno e
+            # riduce ulteriormente i giorni realmente disponibili. Il
+            # massimo NON viene proporzionato: un tetto piu' alto del
+            # necessario in una settimana corta non causa mai
+            # infeasibility (semplicemente non viene raggiunto), quindi
+            # non serve toccarlo.
+            giorni_disponibili_settimana = len(giorni_settimana)
+            if giorni_disponibili_settimana < 7:
+                min_ore_settimana = round(min_ore * giorni_disponibili_settimana / 7)
+            else:
+                min_ore_settimana = min_ore
+
             model.Add(ore_totali_settimana <= max_ore)
-            model.Add(ore_totali_settimana >= min_ore)
+            model.Add(ore_totali_settimana >= min_ore_settimana)
 
     # ==================================================================
     # LIVELLO 4: fairness (soft, priorita' piu' bassa)
