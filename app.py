@@ -181,16 +181,19 @@ LEGENDA_CODICI = (
 )
 
 # Numero MINIMO di giorni finali del mese precedente da mostrare per la
-# situazione iniziale. Il numero effettivo si adatta al giorno della
-# settimana in cui inizia il mese corrente, cosi' la situazione iniziale
-# copre sempre l'intera settimana calendario (lun-dom) su cui il mese
-# inizia — utile per le statistiche di ore settimanali lato utente. Non
-# tocca in alcun modo il motore di calcolo, che gestisce stato_iniziale
-# in modo generico indipendentemente da quanti giorni gli vengono passati.
-#   - mese che inizia lun-ven: 4 giorni (il minimo)
-#   - mese che inizia sabato: 5 giorni (per coprire lun-ven precedenti)
-#   - mese che inizia domenica: 6 giorni (per coprire lun-sab precedenti)
-GIORNI_STATO_INIZIALE_MINIMO = 4
+# situazione iniziale. E' 6 (il massimo possibile: quando il mese inizia
+# di domenica servono 6 giorni per coprire lun-sab precedenti) invece di
+# adattarsi al minimo stretto necessario, per due motivi: (1) copre
+# sempre l'intera settimana calendario su cui il mese inizia, utile per
+# le statistiche di ore settimanali lato utente; (2) da' sempre spazio
+# al pattern di default generato automaticamente (vedi
+# _genera_situazione_iniziale_default), che segue un ciclo a 6 giorni
+# (M-P-N-N-riposo-riposo) per aiutare a evitare l'infeasibility della
+# prima settimana corta del periodo (vedi discussione in cronologia).
+# Non tocca in alcun modo il motore di calcolo, che gestisce
+# stato_iniziale in modo generico indipendentemente da quanti giorni gli
+# vengono passati.
+GIORNI_STATO_INIZIALE_MINIMO = 6
 
 
 def _mese_precedente(anno: int, mese: int) -> tuple[int, int]:
@@ -234,6 +237,62 @@ def _etichetta_giorno(giorno: int) -> str:
     p = st.session_state.periodo
     data = data_da_indice_periodo(int(p["anno"]), int(p["mese"]), giorno)
     return f"{giorno} - {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
+
+
+# Ciclo di default (6 giorni) per la situazione iniziale, usato per
+# generare un punto di partenza plausibile invece di lasciare le celle
+# vuote. Rispetta N-N-riposo-riposo (2 notti consecutive seguite da 2
+# giorni di vero riposo) e M->P invece di P->M (evita la sequenza
+# penalizzata dal motore). Verificato che, con offset diversi tra
+# lavoratori, alcuni portino ore pregresse sufficienti a coprire il
+# minimo contrattuale anche nella prima settimana corta del periodo
+# (quella che aveva causato "infeasible" con la griglia vuota).
+CICLO_DEFAULT_SITUAZIONE_INIZIALE = ["M", "P", "N", "N", "riposo", "riposo"]
+# Ogni quanti lavoratori (per indice) inserire un giorno di assenza al
+# posto della fascia "M" del ciclo — l'unico punto sicuro dove sostituire
+# con un'assenza senza violare "niente notte nei giorni_riposo_dopo_notte
+# giorni prima di una ferie" (le due caselle precedenti nel ciclo sono
+# "riposo", mai notte). La situazione iniziale non distingue ferie da
+# riposo (nessuna delle due genera ore virtuali per il mese precedente),
+# quindi usiamo semplicemente una cella vuota.
+OGNI_N_LAVORATORI_GIORNO_ASSENZA = 7
+
+
+def _genera_situazione_iniziale_default(
+    lavoratori_ids: list[str], giorni_si: list[int]
+) -> dict[tuple[str, str], str]:
+    """Genera un pattern di default per le colonne di situazione iniziale
+    (mese precedente), invece di lasciarle vuote. Ogni lavoratore parte da
+    un punto diverso del ciclo a 6 giorni (offset = indice % 6), cosi' la
+    situazione iniziale mostra una rotazione plausibile invece che valori
+    identici per tutti. Ritorna {(lavoratore_id, colonna): codice}."""
+    risultato = {}
+    n_ciclo = len(CICLO_DEFAULT_SITUAZIONE_INIZIALE)
+    n_giorni = len(giorni_si)
+
+    for indice_lav, lavoratore_id in enumerate(lavoratori_ids):
+        offset = indice_lav % n_ciclo
+        inserisci_assenza = indice_lav % OGNI_N_LAVORATORI_GIORNO_ASSENZA == 0
+
+        for j, giorno in enumerate(giorni_si):
+            # j=0 e' il giorno piu' vecchio, j=n_giorni-1 il piu' recente
+            # (quello immediatamente prima del periodo). Allineiamo il
+            # giorno piu' recente alla posizione 'offset' del ciclo, e
+            # risaliamo all'indietro per i giorni precedenti.
+            posizione_ciclo = (offset - (n_giorni - 1 - j)) % n_ciclo
+            valore = CICLO_DEFAULT_SITUAZIONE_INIZIALE[posizione_ciclo]
+
+            if valore == "M" and inserisci_assenza:
+                codice = ""  # giorno di assenza (ferie o riposo, equivalenti qui)
+            elif valore == "riposo":
+                codice = ""
+            else:
+                codice = _codice_da_admin("turno", valore)  # "AM"/"AP"/"AN"
+
+            col = f"{PREFISSO_PASSATO}{giorno}"
+            risultato[(lavoratore_id, col)] = codice
+
+    return risultato
 
 
 def _giorni_stato_iniziale() -> tuple[list[int], int, int]:
@@ -387,6 +446,16 @@ def _init_state():
 
     df_cal = pd.DataFrame("", index=lavoratori_ids, columns=colonne_tutte)
 
+    # Situazione iniziale: pattern di default plausibile (invece di celle
+    # vuote), poi eventuali dati specifici di sample_data.py sovrascrivono
+    # dove presenti. Vedi _genera_situazione_iniziale_default per il
+    # perche': una situazione iniziale vuota puo' rendere infeasible la
+    # prima settimana corta del periodo, quando il minimo ore settimanali
+    # del lavoratore non e' raggiungibile nei soli giorni del nuovo mese.
+    for (lavoratore_id, col), codice in _genera_situazione_iniziale_default(lavoratori_ids, giorni_si).items():
+        if lavoratore_id in df_cal.index and col in df_cal.columns:
+            df_cal.loc[lavoratore_id, col] = codice
+
     for si in demo.stato_iniziale:
         col = f"{PREFISSO_PASSATO}{si.giorno}"
         if si.lavoratore_id in df_cal.index and col in df_cal.columns:
@@ -458,11 +527,26 @@ def _sincronizza_griglie():
         .fillna(0)
     )
 
-    st.session_state.df_calendario = (
-        st.session_state.df_calendario
-        .reindex(index=lavoratori_ids, columns=colonne_tutte, fill_value="")
-        .fillna("")
-    )
+    # Riallineo SENZA riempire subito le celle nuove (restano NaN),
+    # cosi' posso distinguerle dalle celle gia' "" perche' l'utente le ha
+    # volutamente svuotate — solo le celle genuinamente nuove (nuovo
+    # lavoratore aggiunto, o nuovo mese con giorni di situazione iniziale
+    # diversi) ricevono il pattern di default; quelle gia' esistenti
+    # (modificate o deliberatamente vuote) restano come l'utente le ha
+    # lasciate.
+    df_riallineato = st.session_state.df_calendario.reindex(index=lavoratori_ids, columns=colonne_tutte)
+
+    giorni_si, _, _ = _giorni_stato_iniziale()
+    pattern_default = _genera_situazione_iniziale_default(lavoratori_ids, giorni_si)
+    for (lavoratore_id, col), codice in pattern_default.items():
+        if (
+            lavoratore_id in df_riallineato.index
+            and col in df_riallineato.columns
+            and pd.isna(df_riallineato.loc[lavoratore_id, col])
+        ):
+            df_riallineato.loc[lavoratore_id, col] = codice
+
+    st.session_state.df_calendario = df_riallineato.fillna("")
 
 
 def _sincronizza_numero_lavoratori(n_target: int):

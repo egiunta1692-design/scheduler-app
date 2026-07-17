@@ -46,17 +46,18 @@ griglie e tabelle, mostra anche il giorno della settimana**
 - **Calendario** — due griglie:
   1. **Fabbisogno**: righe M/P/N, valori numerici per giorno del periodo
   2. **Situazione iniziale + Richieste/Vincoli**: griglia unica, righe =
-     lavoratori. Le prime colonne (icona 🕓) sono gli ultimi giorni del
-     mese precedente — turni gia' effettuati, concettualmente trattati
+     lavoratori. Le prime colonne (icona 🕓) sono gli ultimi **6 giorni**
+     del mese precedente — turni gia' effettuati, concettualmente trattati
      come "assegnazioni chiuse" (stesso principio di un vincolo admin,
      solo che e' gia' un fatto avvenuto anziche' un'imposizione per il
-     futuro). Il numero di giorni mostrati e' minimo 4, ma si allarga
-     automaticamente per coprire l'intera settimana calendario (lun-dom)
-     su cui il mese inizia: 4 giorni se il mese inizia lun-ven, 5 se
-     inizia sabato, 6 se inizia domenica — utile per le statistiche di
-     ore settimanali lato utente (il motore di calcolo non e' toccato da
-     questo, gestisce `stato_iniziale` in modo generico indipendentemente
-     dal numero di giorni). Le colonne successive sono il periodo da
+     futuro). Sono sempre 6 (il massimo possibile: quando il mese inizia
+     di domenica servono 6 giorni per coprire l'intera settimana
+     calendario precedente) invece di adattarsi al minimo stretto
+     necessario — utile sia per le statistiche di ore settimanali lato
+     utente sia per dare sempre spazio al **pattern di default**
+     descritto sotto (il motore di calcolo non e' toccato da questo,
+     gestisce `stato_iniziale` in modo generico indipendentemente dal
+     numero di giorni). Le colonne successive sono il periodo da
      pianificare, con un codice breve per cella (es. `F3` = richiesta
      ferie priorita' alta, `R2` = richiesta riposo priorita' media, `AM` =
      turno Mattino forzato dal coordinatore, `AR` = riposo forzato); le ultime colonne (icona ➡️), se presenti, sono gia' nel mese
@@ -70,6 +71,30 @@ griglie e tabelle, mostra anche il giorno della settimana**
      colorazione di sfondo nelle griglie editabili (sono renderizzate su
      canvas), quindi le tre zone si distinguono con le icone nelle
      intestazioni invece che con colori.
+
+     **Pattern di default per la situazione iniziale**: le colonne del
+     mese precedente non partono vuote, ma con un pattern plausibile
+     generato automaticamente (`_genera_situazione_iniziale_default` in
+     `app.py`) — resta comunque completamente modificabile/svuotabile.
+     Il motivo: una situazione iniziale vuota puo' rendere `infeasible`
+     la prima settimana del periodo quando questa e' piu' corta di 7
+     giorni (es. se il mese inizia di mercoledi', la prima settimana ISO
+     ha solo 5 giorni nel periodo) — il minimo ore settimanali del
+     lavoratore puo' diventare irraggiungibile in cosi' pochi giorni,
+     specialmente per chi deve coprire un turno notturno (che impone poi
+     2 giorni di riposo pieno). Il pattern segue un ciclo a 6 giorni
+     (`M-P-N-N-riposo-riposo`), con un offset diverso per ciascun
+     lavoratore (indice % 6) cosi' da avere una rotazione plausibile
+     invece di valori identici per tutti, e con un lavoratore ogni 7
+     senza turno al posto dell'"M" del ciclo (situazione iniziale non
+     distingue ferie da riposo, nessuna delle due genera ore virtuali per
+     il mese precedente, quindi una cella vuota rappresenta entrambe
+     equivalentemente). Il pattern rispetta sempre M->P (mai P->M) e
+     N-N-riposo-riposo (mai una notte isolata seguita da meno di 2 giorni
+     di riposo pieno). Si rigenera solo per le celle genuinamente nuove
+     (nuovo lavoratore aggiunto, o nuovo mese con giorni di situazione
+     iniziale diversi) — le celle gia' modificate o deliberatamente
+     svuotate dall'utente non vengono mai sovrascritte.
 
      **Esporta / Importa CSV** (espansione sopra la griglia): scarica la
      griglia come CSV per modificarla comodamente in Excel o Notepad
