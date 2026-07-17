@@ -181,19 +181,16 @@ LEGENDA_CODICI = (
 )
 
 # Numero MINIMO di giorni finali del mese precedente da mostrare per la
-# situazione iniziale. E' 6 (il massimo possibile: quando il mese inizia
-# di domenica servono 6 giorni per coprire lun-sab precedenti) invece di
-# adattarsi al minimo stretto necessario, per due motivi: (1) copre
-# sempre l'intera settimana calendario su cui il mese inizia, utile per
-# le statistiche di ore settimanali lato utente; (2) da' sempre spazio
-# al pattern di default generato automaticamente (vedi
-# _genera_situazione_iniziale_default), che segue un ciclo a 6 giorni
-# (M-P-N-N-riposo-riposo) per aiutare a evitare l'infeasibility della
-# prima settimana corta del periodo (vedi discussione in cronologia).
-# Non tocca in alcun modo il motore di calcolo, che gestisce
-# stato_iniziale in modo generico indipendentemente da quanti giorni gli
-# vengono passati.
-GIORNI_STATO_INIZIALE_MINIMO = 6
+# situazione iniziale. Il numero effettivo si adatta al giorno della
+# settimana in cui inizia il mese corrente, cosi' la situazione iniziale
+# copre sempre l'intera settimana calendario (lun-dom) su cui il mese
+# inizia — utile per le statistiche di ore settimanali lato utente. Non
+# tocca in alcun modo il motore di calcolo, che gestisce stato_iniziale
+# in modo generico indipendentemente da quanti giorni gli vengono passati.
+#   - mese che inizia lun-ven: 4 giorni (il minimo)
+#   - mese che inizia sabato: 5 giorni (per coprire lun-ven precedenti)
+#   - mese che inizia domenica: 6 giorni (per coprire lun-sab precedenti)
+GIORNI_STATO_INIZIALE_MINIMO = 4
 
 
 def _mese_precedente(anno: int, mese: int) -> tuple[int, int]:
