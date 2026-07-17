@@ -150,13 +150,24 @@ Premi "Genera turni" per vedere:
 - un lavoratore fa al massimo una fascia (M/P/N) al giorno
 - copertura minima di personale per giorno/fascia (fabbisogno)
 - **riposo obbligatorio dopo un turno notturno, o dopo l'ultima notte di
-  una serie consecutiva**: default **2 giorni** (non piu' 1), configurabile
-  via `regole_contrattuali.giorni_riposo_dopo_notte` (fasce bloccate
-  configurabili separatamente via `vietato_dopo_notte`, default M/P). Con
-  serie di notti consecutive, il riposo si applica correttamente dopo
-  l'ULTIMA notte della serie (non dopo ognuna singolarmente), grazie alla
-  sovrapposizione naturale dei blocchi giorno per giorno
+  una serie consecutiva**: **veri giorni di riposo** (nessun turno di
+  alcun tipo, notte compresa — non solo "niente M/P"), default **2
+  giorni** (non piu' 1), configurabile via
+  `regole_contrattuali.giorni_riposo_dopo_notte`. Rileva correttamente
+  quando una notte e' l'ULTIMA di una serie consecutiva (vincolo
+  condizionato "oggi notte E domani non notte"), applicando il riposo
+  pieno solo da li' in poi — non dopo ogni notte della serie
+  singolarmente, altrimenti bloccherebbe anche la legittima continuazione
+  della serie stessa
 - vincolo personale "mai notti" (`lavoratore.vincoli_personali.mai_notti`)
+
+**Nota su un bug corretto**: la prima versione di questo vincolo
+bloccava solo M/P dopo la notte, mai un'altra N — quindi un pattern come
+"notte, 1 giorno di pausa, notte" passava inosservato (non violava
+"niente M/P" ma violava il vero requisito di 2 giorni di riposo pieno).
+Corretto rilevando esplicitamente quando una notte e' l'ultima della sua
+serie e bloccando in quel caso *tutte* le fasce nella finestra di
+riposo, non solo M/P.
 - massimo notti consecutive (default 2, override possibile per singolo
   lavoratore)
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a

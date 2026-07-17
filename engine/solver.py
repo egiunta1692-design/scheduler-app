@@ -6,10 +6,13 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
   1. VINCOLI STRUTTURALI DI SISTEMA (sempre hard):
      - un lavoratore fa al massimo una fascia al giorno
      - copertura minima per giorno/fascia (fabbisogno)
-     - riposo obbligatorio dopo un turno notturno (default 2 giorni,
-       configurabile via regole_contrattuali.giorni_riposo_dopo_notte;
-       si applica correttamente anche dopo serie di notti consecutive,
-       coprendo i giorni dopo l'ULTIMA notte della serie)
+     - riposo obbligatorio dopo un turno notturno: veri giorni di riposo
+       (nessun turno di alcun tipo, notte compresa — non solo "niente
+       M/P"), default 2 giorni, configurabile via
+       regole_contrattuali.giorni_riposo_dopo_notte; rileva correttamente
+       quando una notte e' l'ULTIMA di una serie consecutiva (tramite un
+       vincolo condizionato "oggi notte E domani non notte"), applicando
+       il riposo solo da li' in poi, non dopo ogni notte della serie
      - vincolo personale "mai notti" (lavoratore.vincoli_personali.mai_notti)
      - massimo notti consecutive (con override personale possibile)
      (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
@@ -145,47 +148,86 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 sum(x[(w, fab.giorno, fab.fascia)] for w in lavoratori_ids) >= fab.minimo
             )
 
-    # Riposo obbligatorio dopo un turno notturno: per default 2 giorni
-    # (configurabile), non 1. Applichiamo il blocco per ciascun giorno di
-    # notte, esteso ai N giorni successivi — se ci sono piu' notti
-    # consecutive (fino al massimo consentito), i blocchi si sovrappongono
-    # e "si compongono" automaticamente in modo corretto: es. con 2 notti
-    # di fila e 2 giorni di riposo richiesti, il blocco della prima notte
-    # copre i due giorni successivi (di cui il primo e' comunque un'altra
-    # notte, quindi il blocco su quel giorno e' ininfluente per M/P) e il
-    # blocco della seconda notte copre i due giorni dopo di lei — il
-    # risultato netto e' esattamente "2 giorni di riposo dopo l'ULTIMA
-    # notte della serie", senza dover rilevare esplicitamente dove finisce
-    # la serie.
-    vietato_dopo_notte = dati.regole_contrattuali.vietato_dopo_notte
+    # Riposo obbligatorio dopo un turno notturno (o dopo l'ultima notte di
+    # una serie consecutiva): per default 2 giorni interi di vero riposo,
+    # NON solo "niente M/P" — niente turno di alcun tipo, notte compresa.
+    #
+    # Serve rilevare quando una notte e' davvero l'ULTIMA della sua serie:
+    # se il giorno dopo e' ANCH'ESSO notte, la serie continua (fino al
+    # massimo consentito) e non scatta ancora il riposo. Lo facciamo con
+    # un vincolo condizionato a due letterali: "se oggi e' notte E domani
+    # NON e' notte" -> blocca tutte le fasce nei giorni_riposo_dopo_notte
+    # giorni successivi. Con 2 notti di fila, il vincolo NON scatta dalla
+    # prima notte (perche' il giorno dopo e' notte anche lui) ma scatta
+    # correttamente dalla seconda (l'ultima), producendo esattamente "2
+    # giorni di vero riposo dopo l'ultima notte della serie".
+    #
+    # NOTA: prima di questa correzione veniva bloccato solo M/P (mai N),
+    # quindi un pattern come "notte, 1 giorno di pausa, notte" passava
+    # inosservato (non violava "niente M/P" ma violava il vero requisito
+    # di 2 giorni di riposo pieno). Corretto qui.
     giorni_riposo_dopo_notte = max(dati.regole_contrattuali.giorni_riposo_dopo_notte, 1)
-    for w in lavoratori_ids:
-        for g in giorni:
-            if "N" not in fasce:
-                continue
-            for offset in range(1, giorni_riposo_dopo_notte + 1):
-                giorno_riposo = g + offset
-                if giorno_riposo in giorni:
-                    for f in vietato_dopo_notte:
-                        if f in fasce:
-                            model.Add(x[(w, giorno_riposo, f)] == 0).OnlyEnforceIf(x[(w, g, "N")])
+    if "N" in fasce:
+        for w in lavoratori_ids:
+            for g in giorni:
+                giorno_dopo = g + 1
+                if giorno_dopo in giorni:
+                    letterali_fine_serie = [x[(w, g, "N")], x[(w, giorno_dopo, "N")].Not()]
+                else:
+                    # g e' l'ultimo giorno del periodo: non c'e' un giorno
+                    # dopo da controllare, trattiamo g come fine-serie ai
+                    # fini del blocco entro il periodo corrente.
+                    letterali_fine_serie = [x[(w, g, "N")]]
+
+                for offset in range(1, giorni_riposo_dopo_notte + 1):
+                    giorno_riposo = g + offset
+                    if giorno_riposo in giorni:
+                        for f in fasce:
+                            model.Add(x[(w, giorno_riposo, f)] == 0).OnlyEnforceIf(letterali_fine_serie)
 
     data_inizio_periodo = datetime.date(dati.periodo.anno, dati.periodo.mese, dati.periodo.giorno_inizio)
     data_giorno_prima_periodo = data_inizio_periodo - datetime.timedelta(days=1)
 
+    # Stesso principio per le notti registrate in stato_iniziale (mese
+    # precedente): dobbiamo comunque capire se sono "ultima notte della
+    # serie" prima di bloccare tutte le fasce nella finestra di riposo.
+    # Se il giorno successivo e' ancora nel mese precedente, e' un fatto
+    # storico noto (deterministico, non serve una variabile del modello).
+    # Se il giorno successivo e' il primo giorno del periodo, dipende da
+    # una decisione del motore (variabile x[..., giorno_inizio, "N"]).
     for si in dati.stato_iniziale:
-        if si.mese_precedente and si.fascia == "N":
-            data_si = data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
-            for offset in range(1, giorni_riposo_dopo_notte + 1):
-                data_da_bloccare = data_si + datetime.timedelta(days=offset)
-                if data_da_bloccare < data_inizio_periodo:
-                    continue  # ancora nel mese precedente, non e' una nostra variabile
-                indice_periodo = dati.periodo.giorno_inizio + (data_da_bloccare - data_inizio_periodo).days
-                if indice_periodo not in giorni:
-                    continue
-                for f in vietato_dopo_notte:
-                    if f in fasce and si.lavoratore_id in lavoratori_ids:
-                        model.Add(x[(si.lavoratore_id, indice_periodo, f)] == 0)
+        if not (si.mese_precedente and si.fascia == "N" and si.lavoratore_id in lavoratori_ids):
+            continue
+
+        data_si = data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
+        data_dopo = data_si + datetime.timedelta(days=1)
+
+        letterali_fine_serie = None  # None = fatto certo, nessuna condizione
+        if data_dopo < data_inizio_periodo:
+            prossimo_e_notte = any(
+                si2.lavoratore_id == si.lavoratore_id and si2.mese_precedente and si2.fascia == "N"
+                and data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si2.giorno) == data_dopo
+                for si2 in dati.stato_iniziale
+            )
+            if prossimo_e_notte:
+                continue  # non e' l'ultima notte della serie, la gestira' quella successiva
+        elif data_dopo == data_inizio_periodo:
+            letterali_fine_serie = [x[(si.lavoratore_id, dati.periodo.giorno_inizio, "N")].Not()]
+        else:
+            continue  # caso non atteso
+
+        for offset in range(1, giorni_riposo_dopo_notte + 1):
+            data_da_bloccare = data_si + datetime.timedelta(days=offset)
+            if data_da_bloccare < data_inizio_periodo:
+                continue  # ancora nel mese precedente, non e' una nostra variabile
+            indice_periodo = dati.periodo.giorno_inizio + (data_da_bloccare - data_inizio_periodo).days
+            if indice_periodo not in giorni:
+                continue
+            for f in fasce:
+                if letterali_fine_serie is None:
+                    model.Add(x[(si.lavoratore_id, indice_periodo, f)] == 0)
+                else:
+                    model.Add(x[(si.lavoratore_id, indice_periodo, f)] == 0).OnlyEnforceIf(letterali_fine_serie)
 
     # Vincolo personale "mai notti": alcuni lavoratori (es. per motivi di
     # salute) non possono mai fare il turno N. Questo campo esisteva gia'

@@ -1090,3 +1090,64 @@ def test_giorni_riposo_dopo_notte_configurabile_a_1():
     assert assegnazione_g3 == "M", (
         "Con giorni_riposo_dopo_notte=1, il giorno 3 dovrebbe poter essere M"
     )
+
+
+def test_niente_notte_isolata_dopo_solo_1_giorno_di_pausa():
+    """Bug di regressione trovato in produzione: il pattern 'notte, 1
+    giorno di pausa, notte' passava inosservato perche' il vincolo
+    bloccava solo M/P dopo la notte, mai un'altra N. Con 2 giorni di
+    riposo richiesti, una notte isolata (non parte di una serie) seguita
+    da una SOLA pausa e poi un'altra notte viola il vero requisito di 2
+    giorni di riposo pieno. Verifichiamo rendendo la seconda notte
+    obbligatoria per l'unico lavoratore disponibile: deve risultare
+    infeasible."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_notte_isolata_pausa_breve",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=3),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=36),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=3, fascia="N", minimo=1),  # solo 1 giorno di pausa dopo la notte del giorno 1
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="N"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),  # default: giorni_riposo_dopo_notte=2
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Notte isolata il giorno 1 seguita da una sola pausa (giorno 2) "
+        "non dovrebbe permettere un'altra notte il giorno 3: servono 2 "
+        "giorni pieni di riposo, non solo l'assenza di M/P"
+    )
+
+
+def test_due_notti_consecutive_poi_pausa_singola_non_permessa():
+    """Stesso bug ma dopo una serie di 2 notti consecutive (non isolata):
+    con 2 notti di fila e 2 giorni di riposo richiesti, una terza notte
+    dopo una sola pausa deve restare vietata."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_serie_poi_pausa_breve",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=4),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=40),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=4, fascia="N", minimo=1),  # solo 1 giorno di pausa dopo la serie
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="N"),
+            VincoloAdmin(id="adm2", lavoratore_id="w1", giorno=2, tipo="turno", fascia="N"),
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Serie di 2 notti (giorni 1-2) seguita da una sola pausa (giorno "
+        "3) non dovrebbe permettere un'altra notte il giorno 4"
+    )
