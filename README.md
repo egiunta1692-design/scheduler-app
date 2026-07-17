@@ -119,6 +119,20 @@ dimostrata**:
 - ⏱️ tempo scaduto prima di dimostrarla → potrebbe esistere una soluzione
   migliore; alzare lo slider e rigenerare puo' aiutare
 
+**"Nessuna soluzione trovata" vs "tempo scaduto" — due cose diverse.**
+Se non trova nulla, l'app ora distingue due situazioni ben diverse (prima
+venivano confuse, un bug corretto):
+- **Infeasible** (dimostrato impossibile): il motore ha *dimostrato* che
+  non esiste alcuna soluzione valida. Serve ridurre il fabbisogno minimo
+  o i vincoli forzati.
+- **Tempo scaduto** (stato incerto): il tempo massimo e' scaduto *prima*
+  che il motore trovasse una soluzione O dimostrasse l'impossibilita'.
+  **Non significa che il problema sia irrisolvibile** — con problemi
+  complessi (tanti lavoratori, vincoli stretti come il riposo dopo
+  notte) il motore potrebbe semplicemente aver bisogno di piu' tempo.
+  In questo caso alza il "Tempo massimo di calcolo" e rigenera prima di
+  concludere che i vincoli sono incompatibili.
+
 Premi "Genera turni" per vedere:
 - lo schema turni colorato
 - la copertura effettiva vs fabbisogno (giorni in colonna, M/P/N in riga)

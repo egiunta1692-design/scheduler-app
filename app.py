@@ -1083,9 +1083,21 @@ ultimo_input = st.session_state.get("ultimo_input")
 if risultato is not None:
     if risultato.stato == "infeasible":
         st.error(
-            "Nessuna soluzione trovata: i vincoli inseriti (fabbisogno, "
-            "vincoli admin, regole contrattuali) sono incompatibili tra loro. "
-            "Prova a ridurre il fabbisogno minimo o i vincoli forzati."
+            "Nessuna soluzione trovata: il motore ha DIMOSTRATO che i "
+            "vincoli inseriti (fabbisogno, vincoli admin, regole "
+            "contrattuali) sono incompatibili tra loro — non esiste "
+            "alcuna soluzione possibile. Prova a ridurre il fabbisogno "
+            "minimo o i vincoli forzati."
+        )
+    elif risultato.stato == "tempo_scaduto":
+        st.warning(
+            f"Il tempo massimo di calcolo ({risultato.tempo_impiegato_secondi:.0f}s) "
+            "e' scaduto **prima** che il motore trovasse una soluzione o "
+            "dimostrasse che i vincoli sono incompatibili. Questo **non** "
+            "significa che il problema sia irrisolvibile — con problemi "
+            "complessi (tanti lavoratori, vincoli stretti) il motore "
+            "potrebbe semplicemente aver bisogno di piu' tempo. Prova ad "
+            "alzare il 'Tempo massimo di calcolo' sopra e rigenerare."
         )
     else:
         if risultato.stato == "feasible_con_declassamenti":

@@ -161,7 +161,7 @@ class VincoloDeclassato:
 
 @dataclass
 class OutputTurnazione:
-    stato: str  # "feasible" | "infeasible" | "feasible_con_declassamenti"
+    stato: str  # "feasible" | "infeasible" | "feasible_con_declassamenti" | "tempo_scaduto"
     assegnazioni: list[Assegnazione] = field(default_factory=list)
     richieste_non_soddisfatte: list[RichiestaNonSoddisfatta] = field(default_factory=list)
     vincoli_declassati: list[VincoloDeclassato] = field(default_factory=list)

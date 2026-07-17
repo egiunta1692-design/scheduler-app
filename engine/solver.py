@@ -761,8 +761,20 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     solver.parameters.max_time_in_seconds = tempo_max_secondi
     status = solver.Solve(model)
 
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+    if status == cp_model.INFEASIBLE:
+        # Il solver ha DIMOSTRATO che non esiste alcuna soluzione: i
+        # vincoli sono davvero incompatibili tra loro.
         return OutputTurnazione(stato="infeasible", tempo_impiegato_secondi=solver.WallTime())
+
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        # UNKNOWN (o MODEL_INVALID): il tempo e' scaduto PRIMA che il
+        # motore trovasse una soluzione O dimostrasse l'impossibilita'.
+        # Non e' la stessa cosa di "infeasible" — il problema potrebbe
+        # benissimo avere soluzione, il motore semplicemente non ha fatto
+        # in tempo a trovarla. Distinguerlo evita di dire all'utente "i
+        # vincoli sono incompatibili" quando in realta' serve solo piu'
+        # tempo di calcolo.
+        return OutputTurnazione(stato="tempo_scaduto", tempo_impiegato_secondi=solver.WallTime())
 
     assegnazioni = []
     for w in lavoratori_ids:
