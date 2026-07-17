@@ -50,18 +50,22 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      gia' maturate nella stessa settimana ISO se la settimana e' a
      cavallo con il mese precedente.
 
-     SETTIMANE PARZIALI: se la prima settimana del periodo ha meno di 7
-     giorni controllabili (il mese non inizia di lunedi' — l'ultima
-     settimana e' invece sempre completa, dato che il periodo si estende
-     fino alla domenica), il MINIMO viene proporzionato ai giorni
-     davvero disponibili (min_prorata = round(min * giorni/7)). Il
-     MASSIMO non viene mai proporzionato (un tetto piu' alto del
-     necessario non causa mai infeasibility, semplicemente non viene
-     raggiunto). Senza questa proporzione, un minimo pensato per una
-     settimana intera puo' diventare fisicamente irraggiungibile in una
-     settimana corta — specialmente per chi copre un turno notturno, che
-     impone poi 2 giorni di riposo pieno e riduce ulteriormente i giorni
-     disponibili.
+     SETTIMANE PARZIALI: il minimo NON viene proporzionato quando la
+     prima settimana del periodo ha meno di 7 giorni controllabili (il
+     mese non inizia di lunedi' — l'ultima settimana e' invece sempre
+     completa, dato che il periodo si estende fino alla domenica). La
+     situazione iniziale (stato_iniziale) e' pensata per essere sempre
+     compilata con i turni realmente effettuati nei giorni immediatamente
+     precedenti al periodo: con dati veri, le ore gia' maturate si
+     sommano naturalmente al totale della settimana, rendendo il minimo
+     raggiungibile senza bisogno di ridurlo artificialmente. Una
+     situazione iniziale vuota o incompleta puo' quindi rendere il
+     problema infeasible per la prima settimana — segnale corretto che
+     manca l'informazione, non un bug da mascherare abbassando il
+     vincolo (versione precedente di questo vincolo proporzionava il
+     minimo automaticamente; rimosso perche' la situazione iniziale
+     compilata correttamente e' la soluzione piu' corretta, non
+     un'approssimazione).
 
   4. FAIRNESS (soft, priorita' piu' bassa):
      minimizza la SOMMA degli scarti di ciascun lavoratore dalla MEDIA del
@@ -471,28 +475,22 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             # nemmeno. Se minimo == massimo, questo equivale a un vincolo
             # di uguaglianza esatta (comportamento "a valore fisso").
             #
-            # ECCEZIONE per le settimane PARZIALI (meno di 7 giorni
-            # controllabili nel periodo — tipicamente solo la prima, se il
-            # mese non inizia di lunedi'; l'ultima e' sempre completa
-            # perche' il periodo si estende fino alla domenica): il minimo
-            # viene proporzionato ai giorni davvero disponibili, altrimenti
-            # un minimo pensato per una settimana intera (es. 32h su 7
-            # giorni) puo' diventare fisicamente irraggiungibile in una
-            # settimana da 5 giorni — specialmente per chi deve coprire un
-            # turno notturno, che impone poi 2 giorni di riposo pieno e
-            # riduce ulteriormente i giorni realmente disponibili. Il
-            # massimo NON viene proporzionato: un tetto piu' alto del
-            # necessario in una settimana corta non causa mai
-            # infeasibility (semplicemente non viene raggiunto), quindi
-            # non serve toccarlo.
-            giorni_disponibili_settimana = len(giorni_settimana)
-            if giorni_disponibili_settimana < 7:
-                min_minuti_settimana = round(min_minuti * giorni_disponibili_settimana / 7)
-            else:
-                min_minuti_settimana = min_minuti
-
+            # NOTA sulle settimane PARZIALI (meno di 7 giorni controllabili
+            # nel periodo — tipicamente solo la prima, se il mese non
+            # inizia di lunedi'): il minimo NON viene proporzionato (a
+            # differenza di una versione precedente di questo vincolo).
+            # La situazione iniziale e' pensata per essere compilata
+            # sempre con i turni realmente effettuati nei giorni
+            # immediatamente precedenti al periodo — con quei dati veri,
+            # i minuti gia' maturati (minuti_gia_maturati sopra) si
+            # sommano naturalmente al totale della settimana, rendendo il
+            # minimo raggiungibile senza bisogno di ridurlo
+            # artificialmente. Una situazione iniziale vuota o incompleta
+            # puo' quindi rendere il problema infeasible per la prima
+            # settimana — e' un segnale corretto che manca l'informazione,
+            # non un bug da mascherare abbassando il vincolo.
             model.Add(minuti_totali_settimana <= max_minuti)
-            model.Add(minuti_totali_settimana >= min_minuti_settimana)
+            model.Add(minuti_totali_settimana >= min_minuti)
 
     # ==================================================================
     # LIVELLO 4: fairness (soft, priorita' piu' bassa)

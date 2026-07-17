@@ -236,22 +236,22 @@ def _etichetta_giorno(giorno: int) -> str:
     return f"{giorno} - {_nome_giorno_settimana(data)} {data.strftime('%d/%m')}"
 
 
-# Ciclo di default (6 giorni) per la situazione iniziale, usato per
-# generare un punto di partenza plausibile invece di lasciare le celle
-# vuote. Rispetta N-N-riposo-riposo (2 notti consecutive seguite da 2
-# giorni di vero riposo) e M->P invece di P->M (evita la sequenza
-# penalizzata dal motore). Verificato che, con offset diversi tra
-# lavoratori, alcuni portino ore pregresse sufficienti a coprire il
-# minimo contrattuale anche nella prima settimana corta del periodo
-# (quella che aveva causato "infeasible" con la griglia vuota).
-CICLO_DEFAULT_SITUAZIONE_INIZIALE = ["M", "P", "N", "N", "riposo", "riposo"]
+# Ciclo di default (3 giorni: M, P, riposo) per la situazione iniziale,
+# usato per generare un punto di partenza plausibile invece di lasciare
+# le celle vuote. NIENTE NOTTI nel ciclo: una versione precedente usava
+# un ciclo con N-N-riposo-riposo, ma verificato numericamente che poteva
+# lasciare troppi pochi lavoratori "liberi e con credito sufficiente"
+# per coprire le notti richieste nella prima settimana corta del periodo
+# (8 su 20 disponibili contro 10 richieste in uno scenario reale — bug
+# scoperto in produzione). Con solo M/P, nessun lavoratore e' mai
+# bloccato dal riposo dovuto a una notte pregressa, e il credito minimo
+# (8h) e' sempre sufficiente — molto piu' robusto.
+CICLO_DEFAULT_SITUAZIONE_INIZIALE = ["M", "P", "riposo"]
 # Ogni quanti lavoratori (per indice) inserire un giorno di assenza al
-# posto della fascia "M" del ciclo — l'unico punto sicuro dove sostituire
-# con un'assenza senza violare "niente notte nei giorni_riposo_dopo_notte
-# giorni prima di una ferie" (le due caselle precedenti nel ciclo sono
-# "riposo", mai notte). La situazione iniziale non distingue ferie da
-# riposo (nessuna delle due genera ore virtuali per il mese precedente),
-# quindi usiamo semplicemente una cella vuota.
+# posto della fascia "M" del ciclo, per un minimo di varieta'. La
+# situazione iniziale non distingue ferie da riposo (nessuna delle due
+# genera ore virtuali per il mese precedente), quindi usiamo
+# semplicemente una cella vuota.
 OGNI_N_LAVORATORI_GIORNO_ASSENZA = 7
 
 
@@ -260,7 +260,7 @@ def _genera_situazione_iniziale_default(
 ) -> dict[tuple[str, str], str]:
     """Genera un pattern di default per le colonne di situazione iniziale
     (mese precedente), invece di lasciarle vuote. Ogni lavoratore parte da
-    un punto diverso del ciclo a 6 giorni (offset = indice % 6), cosi' la
+    un punto diverso del ciclo (offset = indice % lunghezza_ciclo), cosi' la
     situazione iniziale mostra una rotazione plausibile invece che valori
     identici per tutti. Ritorna {(lavoratore_id, colonna): codice}."""
     risultato = {}

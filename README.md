@@ -76,37 +76,43 @@ griglie e tabelle, mostra anche il giorno della settimana**
      mese precedente non partono vuote, ma con un pattern plausibile
      generato automaticamente (`_genera_situazione_iniziale_default` in
      `app.py`) — resta comunque completamente modificabile/svuotabile.
-     Il motivo: una situazione iniziale vuota puo' rendere `infeasible`
-     la prima settimana del periodo quando questa e' piu' corta di 7
-     giorni (es. se il mese inizia di mercoledi', la prima settimana ISO
-     ha solo 5 giorni nel periodo) — il minimo ore settimanali del
-     lavoratore puo' diventare irraggiungibile in cosi' pochi giorni,
-     specialmente per chi deve coprire un turno notturno (che impone poi
-     2 giorni di riposo pieno). Il pattern segue un ciclo a 6 giorni
-     (`M-P-N-N-riposo-riposo`), con un offset diverso per ciascun
-     lavoratore (indice % 6) cosi' da avere una rotazione plausibile
-     invece di valori identici per tutti, e con un lavoratore ogni 7
-     senza turno al posto dell'"M" del ciclo (situazione iniziale non
-     distingue ferie da riposo, nessuna delle due genera ore virtuali per
-     il mese precedente, quindi una cella vuota rappresenta entrambe
-     equivalentemente). Il pattern rispetta sempre M->P (mai P->M) e
-     N-N-riposo-riposo (mai una notte isolata seguita da meno di 2 giorni
-     di riposo pieno). Si rigenera solo per le celle genuinamente nuove
-     (nuovo lavoratore aggiunto, o nuovo mese con giorni di situazione
-     iniziale diversi) — le celle gia' modificate o deliberatamente
-     svuotate dall'utente non vengono mai sovrascritte.
+     Il motivo: **compilare la situazione iniziale con i turni realmente
+     effettuati e' l'unico modo corretto di rendere raggiungibile il
+     minimo ore settimanali nella prima settimana del periodo, quando
+     questa e' piu' corta di 7 giorni** (es. se il mese inizia di
+     mercoledi', la prima settimana ISO ha solo 5 giorni nel periodo) —
+     le ore gia' maturate nei giorni precedenti si sommano naturalmente
+     al totale della settimana (vedi "Monte ore settimanale" sopra: il
+     minimo NON viene piu' proporzionato automaticamente, e' una
+     versione precedente di questo vincolo che e' stata rimossa in
+     favore di questo approccio, piu' corretto perche' basato su dati
+     veri invece che su un'approssimazione). Il pattern di default segue
+     un ciclo a 3 giorni (`M-P-riposo`), con un offset diverso per
+     ciascun lavoratore cosi' da avere una rotazione plausibile invece
+     di valori identici per tutti, e con un lavoratore ogni 7 senza
+     turno al posto dell'"M" del ciclo (situazione iniziale non
+     distingue ferie da riposo, nessuna delle due genera ore virtuali
+     per il mese precedente, quindi una cella vuota rappresenta entrambe
+     equivalentemente). **Deliberatamente senza notti**: una versione
+     precedente del ciclo includeva notti (`M-P-N-N-riposo-riposo`), ma
+     verificato numericamente che poteva lasciare troppi pochi
+     lavoratori liberi e con credito sufficiente a coprire le notti
+     richieste nella prima settimana (8 su 20 disponibili contro 10
+     richieste in uno scenario reale) — un ciclo solo M/P e' molto piu'
+     robusto: nessun lavoratore e' mai bloccato dal riposo dovuto a una
+     notte pregressa, e tutti hanno credito sufficiente. Si rigenera
+     solo per le celle genuinamente nuove (nuovo lavoratore aggiunto, o
+     nuovo mese con giorni di situazione iniziale diversi) — le celle
+     gia' modificate o deliberatamente svuotate dall'utente non vengono
+     mai sovrascritte.
 
-     **Nota**: la vera difesa contro l'infeasibility da settimana
-     parziale e' la proporzione automatica del minimo ore (vedi "Monte
-     ore settimanale" sopra) — un meccanismo strutturale che non dipende
-     dal contenuto della situazione iniziale. Il pattern di default qui
-     sopra resta comunque utile come punto di partenza realistico
-     (invece di celle vuote), ma da solo — si e' verificato in pratica —
-     non basta sempre a garantire la risolvibilita': un calcolo manuale
-     su un caso reale ha mostrato che un pattern "furbo" richiede di
-     tracciare correttamente troppe interazioni delicate (riposo residuo
-     dalla situazione iniziale + riposo di eventuali nuove notti + tetto
-     massimo + minimo) per essere una base affidabile da solo.
+     **Importante**: dato che il minimo ore settimanali non viene piu'
+     proporzionato per le settimane parziali, una situazione iniziale
+     lasciata vuota o compilata solo in parte puo' rendere `infeasible`
+     la prima settimana del periodo — il pattern di default sopra da'
+     un punto di partenza ragionevole, ma per la massima affidabilita'
+     va sostituito con i turni realmente effettuati dai lavoratori nei
+     giorni immediatamente precedenti al periodo.
 
      **Esporta / Importa CSV** (espansione sopra la griglia): scarica la
      griglia come CSV per modificarla comodamente in Excel o Notepad
@@ -318,20 +324,34 @@ per restare compatibili con somme ed export CSV.
 problema `infeasible`, coerentemente con lo stesso comportamento gia'
 in uso per gli altri vincoli hard del motore.
 
-**Settimane parziali — il minimo si proporziona automaticamente.** Se
-il mese non inizia di lunedi', la prima settimana del periodo ha meno
-di 7 giorni controllabili (es. mese che inizia mercoledi' -> solo 5
-giorni; l'ultima settimana e' invece sempre completa, perche' il
-periodo si estende fino alla domenica). Un minimo pensato per una
-settimana intera (es. 32h su 7 giorni) puo' diventare fisicamente
-irraggiungibile in una settimana corta — specialmente per chi copre un
-turno notturno, che impone poi 2 giorni di riposo pieno e riduce
-ulteriormente i giorni disponibili. Per questo, **solo il minimo**
-(mai il massimo — un tetto piu' alto del necessario non causa mai
-infeasibility) viene proporzionato ai giorni davvero disponibili:
-`minimo_proporzionato = round(minimo × giorni_disponibili / 7)`. Per
-una settimana da 5 giorni con minimo 32h: 32×5/7 ≈ **23h** invece di
-32h.
+**Settimane parziali — il minimo NON si proporziona (rimosso).** Se il
+mese non inizia di lunedi', la prima settimana del periodo ha meno di 7
+giorni controllabili (es. mese che inizia mercoledi' -> solo 5 giorni;
+l'ultima settimana e' invece sempre completa, perche' il periodo si
+estende fino alla domenica). Una versione precedente di questo vincolo
+proporzionava automaticamente il minimo ai giorni disponibili — rimossa
+perche' un'approssimazione: la soluzione corretta e' compilare la
+**situazione iniziale** con i turni realmente effettuati nei giorni
+immediatamente precedenti al periodo, cosi' le ore gia' maturate si
+sommano naturalmente al totale della settimana (vedi sopra
+`ore_pregresse`/`minuti_pregressi_per_settimana`), rendendo il minimo
+raggiungibile senza bisogno di ridurlo artificialmente. **Una situazione
+iniziale vuota o incompleta puo' quindi rendere infeasible la prima
+settimana** — segnale corretto che manca l'informazione, non un bug.
+L'app genera comunque un pattern di default plausibile per la
+situazione iniziale invece di lasciarla vuota (vedi sopra nella sezione
+Calendario), ma per la massima affidabilita' andrebbe sostituito con i
+turni veri.
+
+**Perche' non toccare anche riposo dopo notte e massimo notti
+consecutive?** Questi vincoli gia' tengono conto della situazione
+iniziale (per costruzione, da prima di questa modifica) e restano cosi'
+— a differenza del monte ore (una questione di "contabilita'"), sono
+vincoli di sicurezza fisiologica: ignorare notti pregresse per questi
+due vincoli specifici rischierebbe di produrre turni realmente scorretti
+(es. una terza notte consecutiva non rilevata, o un turno assegnato
+senza il riposo dovuto), anche se il modello risultasse "corretto" sulla
+carta.
 
 **Ferie vs riposo — differenza sul monte ore:**
 entrambe bloccano i turni allo stesso identico modo, ma non sono
@@ -442,10 +462,14 @@ simula un reparto con **20 infermieri** e un fabbisogno giornaliero di
 **3 Mattino + 3 Pomeriggio + 2 Notte** (8 turni/giorno), per **l'intero
 periodo esteso** di luglio 2026 (1 luglio - 2 agosto, 33 giorni: luglio
 finisce venerdi' 31, quindi il periodo si estende fino alla domenica
-successiva). Con 20 lavoratori a 36 ore settimanali (4 turni/settimana
-ciascuno) la capacita' e' 80 turni/settimana contro una domanda massima
-di 56: margine ampio per lasciare spazio a richieste soft, vincoli admin
-e fairness su tutte le settimane del periodo.
+successiva). Include anche una situazione iniziale generata (ciclo
+M-P-riposo, offset diverso per lavoratore — vedi
+`_genera_stato_iniziale_demo`, stessa logica del generatore usato in
+`app.py`): necessaria perche' luglio 2026 inizia di mercoledi', quindi
+la prima settimana del periodo ha solo 5 giorni controllabili, e il
+minimo ore settimanali (32h) non e' proporzionato automaticamente (vedi
+"Monte ore settimanale" sopra) — senza situazione iniziale, lo scenario
+di esempio risulterebbe `infeasible` sulla prima settimana.
 
 ## Prossimi step possibili (non ancora implementati)
 

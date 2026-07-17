@@ -7,6 +7,8 @@ per questo copre l'intero periodo che Streamlit mostrerebbe di default,
 cosi' la griglia fabbisogno non appare "vuota" oltre un certo giorno.
 """
 
+import datetime
+
 from engine.models import (
     InputTurnazione,
     Periodo,
@@ -31,6 +33,47 @@ NOMI_LAVORATORI = [
 
 ANNO_DEMO = 2026
 MESE_DEMO = 7  # luglio 2026: finisce venerdi' 31 -> periodo esteso a domenica 2 agosto
+
+# Ciclo di default (3 giorni: M, P, riposo) per generare una situazione
+# iniziale plausibile. NIENTE NOTTI nel ciclo di default: una situazione
+# iniziale con notti pregresse puo' lasciare alcuni lavoratori "bloccati"
+# dal riposo dovuto proprio nei primi giorni del periodo (con margine
+# insufficiente a coprire le notti richieste dal fabbisogno li' — bug
+# scoperto verificando numericamente il caso reale: con notti nel ciclo,
+# solo 8 lavoratori su 20 risultavano liberi e con credito sufficiente,
+# contro le 10 notti richieste nella prima settimana). Con solo M/P,
+# NESSUN lavoratore e' mai bloccato dal riposo, e il credito minimo (8h)
+# e' sempre sufficiente a rendere raggiungibile il minimo contrattuale
+# nella prima settimana corta — molto piu' robusto che affidarsi a un
+# ciclo con notti che deve "azzeccare" l'equilibrio esatto.
+_CICLO_SITUAZIONE_INIZIALE = ["M", "P", "riposo"]
+
+
+def _genera_stato_iniziale_demo(lavoratori_ids: list[str], anno: int, mese: int) -> list[StatoIniziale]:
+    n_ciclo = len(_CICLO_SITUAZIONE_INIZIALE)
+    primo_giorno_mese = datetime.date(anno, mese, 1)
+    # Come in app.py: minimo 4 giorni, esteso se serve a coprire l'intera
+    # settimana calendario su cui il mese inizia.
+    giorni_necessari = max(4, primo_giorno_mese.isoweekday() - 1)
+
+    entries: list[StatoIniziale] = []
+    for indice_lav, lavoratore_id in enumerate(lavoratori_ids):
+        offset = indice_lav % n_ciclo
+        for j in range(giorni_necessari):
+            # j=0 e' il giorno piu' vecchio, l'ultimo e' il piu' recente
+            # (immediatamente prima del periodo) — stesso allineamento
+            # usato in app.py.
+            posizione = (offset - (giorni_necessari - 1 - j)) % n_ciclo
+            valore = _CICLO_SITUAZIONE_INIZIALE[posizione]
+            if valore == "riposo":
+                continue  # nessuna voce = implicitamente non lavorato
+            data_si = primo_giorno_mese - datetime.timedelta(days=giorni_necessari - j)
+            entries.append(
+                StatoIniziale(
+                    lavoratore_id=lavoratore_id, giorno=data_si.day, fascia=valore, mese_precedente=True
+                )
+            )
+    return entries
 
 
 def get_sample_input() -> InputTurnazione:
@@ -72,18 +115,15 @@ def get_sample_input() -> InputTurnazione:
         RichiestaSoft(id="req2", lavoratore_id="w3", giorno=3, tipo="turno", fascia="M", priorita=2),
     ]
 
-    # Situazione iniziale: nessuna voce scritta a mano qui. In app.py il
-    # generatore automatico (_genera_situazione_iniziale_default) popola
-    # gia' una situazione iniziale plausibile e internamente coerente per
-    # tutti i lavoratori (rispetta da solo il massimo notti consecutive,
-    # il riposo dopo notte, ecc.). Una voce scritta a mano qui verrebbe
-    # sovrapposta SOPRA quel pattern (i dati specifici di sample_data.py
-    # hanno precedenza), col rischio concreto di creare combinazioni
-    # invalide che nessuno dei due pezzi di codice, preso da solo,
-    # produrrebbe mai (es. un valore forzato che estende un "N,N" del
-    # pattern generato in un "N,N,N" invalido) — esattamente il tipo di
-    # bug scoperto in produzione che ha portato a rimuovere questa voce.
-    stato_iniziale: list[StatoIniziale] = []
+    # Situazione iniziale generata con lo stesso ciclo sicuro usato in
+    # app.py (vedi _genera_stato_iniziale_demo sopra): necessaria perche'
+    # il minimo ore settimanali non viene piu' proporzionato per le
+    # settimane parziali — la situazione iniziale compilata (qui,
+    # generata) e' l'unico modo corretto di rendere raggiungibile il
+    # minimo nella prima settimana corta del periodo.
+    stato_iniziale = _genera_stato_iniziale_demo(
+        [l.id for l in lavoratori], ANNO_DEMO, MESE_DEMO
+    )
 
     return InputTurnazione(
         reparto_id="rep_demo",

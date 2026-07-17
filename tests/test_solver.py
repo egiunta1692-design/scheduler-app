@@ -1158,18 +1158,23 @@ def test_due_notti_consecutive_poi_pausa_singola_non_permessa():
 
 
 # ---------------------------------------------------------------------------
-# Minimo ore settimanali proporzionato nelle settimane parziali
+# Settimane parziali: niente piu' proporzione automatica del minimo —
+# la situazione iniziale (compilata con dati veri) e' ora l'unico modo
+# corretto di gestirle
 # ---------------------------------------------------------------------------
 
-def test_minimo_ore_proporzionato_in_settimana_parziale():
+def test_settimana_parziale_senza_situazione_iniziale_puo_essere_infeasible():
     """Luglio 2026 inizia di mercoledi': la prima settimana del periodo
     ha solo 5 giorni disponibili (1-5 luglio), non 7. Un lavoratore che fa
     una notte il primo giorno (10h + 2 giorni di riposo pieno + al
-    massimo 2 giorni residui = 26h max) non potrebbe MAI raggiungere un
-    minimo di 32h pensato per una settimana intera — ma con la
-    proporzione (32*5/7 ~= 23h) diventa raggiungibile."""
+    massimo 2 giorni residui = 26h max ottenibili nel periodo) non puo'
+    raggiungere un minimo di 32h SENZA situazione iniziale — a
+    differenza della versione precedente (proporzione automatica), ora
+    questo e' un infeasible corretto: manca l'informazione su cosa il
+    lavoratore ha gia' fatto nei giorni immediatamente prima, non un bug
+    da compensare abbassando il vincolo."""
     dati = InputTurnazione(
-        reparto_id="rep_test_prorata",
+        reparto_id="rep_test_no_prorata_senza_si",
         categoria="infermieri",
         periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=5),
         lavoratori=[
@@ -1185,38 +1190,50 @@ def test_minimo_ore_proporzionato_in_settimana_parziale():
     )
 
     risultato = genera_turni(dati)
-    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
-        "Con il minimo proporzionato (~23h su 5 giorni), un lavoratore che "
-        "fa notte il primo giorno (max 26h ottenibili in questa settimana "
-        "corta) dovrebbe riuscire a raggiungere il minimo. Senza la "
-        "proporzione (minimo 32h pieno) sarebbe rimasto sotto e il "
-        "problema sarebbe infeasible"
+    assert risultato.stato == "infeasible", (
+        "Senza situazione iniziale, un lavoratore che fa notte il primo "
+        "giorno puo' ottenere al massimo 26h in questa settimana corta, "
+        "sotto il minimo di 32h: deve risultare infeasible (nessuna "
+        "proporzione automatica a mascherare il problema)"
     )
 
 
-def test_minimo_ore_non_proporzionato_in_settimana_completa():
-    """Le settimane con 7 giorni pieni nel periodo NON devono essere
-    proporzionate: un minimo volutamente irraggiungibile (100h) deve
-    restare infeasible, non essere silenziosamente ridotto."""
+def test_settimana_parziale_con_situazione_iniziale_vera_diventa_feasible():
+    """Stesso identico scenario del test sopra, ma con situazione
+    iniziale compilata (8h gia' lavorate il 30 giugno, che cade nella
+    stessa settimana ISO 27 del periodo): 8h pregresse + 26h max
+    ottenibili nel periodo = 34h, sufficienti a superare il minimo di
+    32h senza bisogno di nessuna proporzione — la soluzione corretta al
+    problema della settimana corta e' compilare la situazione iniziale
+    con dati veri, non abbassare artificialmente il vincolo."""
     dati = InputTurnazione(
-        reparto_id="rep_test_no_prorata",
+        reparto_id="rep_test_no_prorata_con_si",
         categoria="infermieri",
-        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),  # 1 giu 2026 = lunedi', settimana piena
+        periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=5),
         lavoratori=[
-            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=100, ore_settimanali_max=100),
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=32, ore_settimanali_max=40),
         ],
         fabbisogno=[
-            Fabbisogno(giorno=1, fascia="M", minimo=1),
+            Fabbisogno(giorno=1, fascia="N", minimo=1),
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="N"),
+        ],
+        stato_iniziale=[
+            # 30 giugno 2026 cade nella stessa settimana ISO 27 del
+            # periodo (che inizia mercoledi' 1 luglio): queste 8 ore si
+            # sommano correttamente al totale della settimana.
+            StatoIniziale(lavoratore_id="w1", giorno=30, fascia="M", mese_precedente=True),
         ],
         regole_contrattuali=RegoleContrattuali(),
     )
 
     risultato = genera_turni(dati)
-    assert risultato.stato == "infeasible", (
-        "Con una settimana PIENA (7 giorni), il minimo non deve essere "
-        "proporzionato: un minimo irraggiungibile (100h) deve restare "
-        "infeasible, non essere silenziosamente ridotto a qualcosa di "
-        "raggiungibile"
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
+        "Con 8h di situazione iniziale vera (30 giugno, stessa settimana "
+        "ISO del periodo) + fino a 26h ottenibili nel periodo = 34h, il "
+        "minimo di 32h dovrebbe essere raggiungibile senza bisogno di "
+        "nessuna proporzione automatica"
     )
 
 
