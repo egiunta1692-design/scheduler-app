@@ -56,8 +56,14 @@ def get_sample_input() -> InputTurnazione:
     vincoli_admin = [
         # Esempio: ferie forzata dal coordinatore
         VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=5, tipo="ferie"),
-        # Esempio: turno forzato dal coordinatore (es. sostituzione dell'ultimo minuto)
-        VincoloAdmin(id="adm2", lavoratore_id="w4", giorno=2, tipo="turno", fascia="M"),
+        # Esempio: turno forzato dal coordinatore (es. sostituzione dell'ultimo
+        # minuto). Giorno 10 (non un giorno vicino all'inizio del periodo):
+        # i primi giorni del periodo sono spesso condizionati dal riposo
+        # dovuto a eventuali notti nella situazione iniziale generata
+        # automaticamente in app.py, quindi un vincolo forzato proprio li'
+        # rischierebbe di entrare in conflitto con quel riposo a seconda
+        # del pattern che tocca a w4.
+        VincoloAdmin(id="adm2", lavoratore_id="w4", giorno=10, tipo="turno", fascia="M"),
     ]
 
     richieste_soft = [
@@ -66,13 +72,18 @@ def get_sample_input() -> InputTurnazione:
         RichiestaSoft(id="req2", lavoratore_id="w3", giorno=3, tipo="turno", fascia="M", priorita=2),
     ]
 
-    stato_iniziale = [
-        # Esempio: w5 ha fatto notte l'ultimo giorno di giugno -> il motore
-        # deve impedirgli M/P il 1 luglio (riposo dopo notte a cavallo di mese)
-        # e conteggiare quelle 8 ore nella settimana ISO corrispondente se
-        # a cavallo con la prima settimana del periodo.
-        StatoIniziale(lavoratore_id="w5", giorno=30, fascia="N", mese_precedente=True),
-    ]
+    # Situazione iniziale: nessuna voce scritta a mano qui. In app.py il
+    # generatore automatico (_genera_situazione_iniziale_default) popola
+    # gia' una situazione iniziale plausibile e internamente coerente per
+    # tutti i lavoratori (rispetta da solo il massimo notti consecutive,
+    # il riposo dopo notte, ecc.). Una voce scritta a mano qui verrebbe
+    # sovrapposta SOPRA quel pattern (i dati specifici di sample_data.py
+    # hanno precedenza), col rischio concreto di creare combinazioni
+    # invalide che nessuno dei due pezzi di codice, preso da solo,
+    # produrrebbe mai (es. un valore forzato che estende un "N,N" del
+    # pattern generato in un "N,N,N" invalido) — esattamente il tipo di
+    # bug scoperto in produzione che ha portato a rimuovere questa voce.
+    stato_iniziale: list[StatoIniziale] = []
 
     return InputTurnazione(
         reparto_id="rep_demo",

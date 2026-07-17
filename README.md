@@ -238,6 +238,22 @@ riposo, non solo M/P.
   meccanismo di declassamento automatico sono rimandati a una fase
   successiva (come deciso insieme)
 
+**Attenzione — vincolo admin "turno forzato" vicino all'inizio del
+periodo + notti pregresse**: se un lavoratore ha gia' esaurito il
+margine di notti consecutive con notti nella situazione iniziale (es. 2
+notti su un massimo di 2), un vincolo admin che forza un turno M/P nei
+primissimi giorni del periodo (dentro la finestra di riposo dovuta a
+quelle notti) puo' creare un vicolo cieco senza soluzione: continuare la
+serie di notti per evitare il riposo viola il massimo notti consecutive,
+fermarsi attiva il riposo che blocca il turno forzato. **Bug scoperto in
+produzione** (causa isolata in un vincolo di esempio in
+`sample_data.py`, troppo vicino all'inizio del periodo rispetto alla
+situazione iniziale generata automaticamente — corretto spostandolo piu'
+avanti nel mese). Se imposti un turno forzato nei primi giorni del
+periodo, verifica che il lavoratore non abbia gia' notti pregresse
+recenti nella situazione iniziale che potrebbero richiedere riposo
+proprio in quei giorni.
+
 **Livello 3 - richieste soft pesate (preferenze lavoratore):**
 - scala di priorita' 1 (indifferente) - 4 (molto importante), mappata
   internamente su pesi esponenziali (1, 10, 100, 1000) cosi' una

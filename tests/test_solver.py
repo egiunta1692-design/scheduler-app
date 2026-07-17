@@ -225,12 +225,16 @@ def test_vincolo_admin_turno_forzato_rispettato():
     risultato = genera_turni(dati)
     assert risultato.stato in ("feasible", "feasible_con_declassamenti")
 
-    # adm2: w4 deve avere M il giorno 2, imposto dal coordinatore
-    fascia_w4_giorno2 = next(
-        (a.fascia for a in risultato.assegnazioni if a.lavoratore_id == "w4" and a.giorno == 2),
+    # adm2: w4 deve avere M il giorno 10, imposto dal coordinatore (spostato
+    # da giorno 2 a giorno 10: troppo vicino all'inizio del periodo, rischiava
+    # di collidere con l'eventuale riposo dovuto a notti nella situazione
+    # iniziale generata automaticamente in app.py — bug scoperto in
+    # produzione, vedi sample_data.py)
+    fascia_w4_giorno10 = next(
+        (a.fascia for a in risultato.assegnazioni if a.lavoratore_id == "w4" and a.giorno == 10),
         None,
     )
-    assert fascia_w4_giorno2 == "M"
+    assert fascia_w4_giorno10 == "M"
 
 
 # ---------------------------------------------------------------------------
@@ -1213,4 +1217,52 @@ def test_minimo_ore_non_proporzionato_in_settimana_completa():
         "proporzionato: un minimo irraggiungibile (100h) deve restare "
         "infeasible, non essere silenziosamente ridotto a qualcosa di "
         "raggiungibile"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regressione: vincolo admin vicino all'inizio periodo + notti pregresse
+# ---------------------------------------------------------------------------
+
+def test_vincolo_admin_vicino_a_notti_pregresse_puo_essere_infeasible():
+    """Bug scoperto in produzione (causa isolata in sample_data.py, dove
+    un vincolo admin "turno forzato" era troppo vicino all'inizio del
+    periodo rispetto a una situazione iniziale con notti pregresse).
+
+    Se un lavoratore ha gia' esaurito il margine di notti consecutive con
+    notti pregresse (es. 2 notti su un massimo di 2), e un vincolo admin
+    forza un turno M/P troppo vicino all'inizio del periodo (dentro la
+    finestra di riposo dovuta), il motore si trova in un vicolo cieco:
+    - se NON continua la serie di notti, scatta il riposo pieno (blocca
+      il turno forzato)
+    - se continua la serie (per evitare il riposo), supera il massimo
+      notti consecutive
+
+    Nessuna delle due strade funziona: infeasible per costruzione, non
+    per mancanza di capacita'."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_conflitto_pregresse_admin",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=3),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=0, ore_settimanali_max=40),
+        ],
+        fabbisogno=[],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=2, tipo="turno", fascia="M"),
+        ],
+        stato_iniziale=[
+            StatoIniziale(lavoratore_id="w1", giorno=29, fascia="N", mese_precedente=True),
+            StatoIniziale(lavoratore_id="w1", giorno=30, fascia="N", mese_precedente=True),
+        ],
+        regole_contrattuali=RegoleContrattuali(),  # max_notti_consecutive=2, giorni_riposo_dopo_notte=2
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "w1 ha gia' esaurito il margine di notti consecutive (2 pregresse "
+        "su un massimo di 2) e ha un turno M forzato il giorno 2: sia "
+        "continuare la serie (vietato dal massimo notti consecutive) sia "
+        "fermarsi (il riposo dovuto blocca il turno forzato) portano a un "
+        "vicolo cieco"
     )
