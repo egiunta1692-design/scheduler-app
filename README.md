@@ -177,7 +177,12 @@ venivano confuse, un bug corretto):
   concludere che i vincoli sono incompatibili.
 
 Premi "Genera turni" per vedere:
-- lo schema turni colorato
+- **lo schema turni colorato**, che include anche le colonne della
+  situazione iniziale (icona 🕓, stessi giorni e stesso contenuto della
+  griglia di input) — non sono decisioni del motore, solo contesto su
+  cosa e' gia' successo prima del periodo. Le intestazioni di colonna
+  usano la stessa etichettatura (icone 🕓/➡️ + giorno della settimana +
+  data) della griglia "Situazione iniziale + Richieste/Vincoli"
 - la copertura effettiva vs fabbisogno (giorni in colonna, M/P/N in riga)
 - **Turni per lavoratore**: M/P/N/**Ferie**/Totale turni/Ore M/P/N/**Ore F**
   sono calcolati **sul solo mese di riferimento selezionato** (escludono

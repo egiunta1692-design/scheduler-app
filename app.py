@@ -1285,14 +1285,43 @@ if risultato is not None:
             colore = COLORI_FASCIA.get(val, "white")
             return f"background-color: {colore}"
 
+        # Colonne della situazione iniziale (mese precedente): stessi
+        # giorni e stesso contenuto della griglia "Situazione iniziale +
+        # Richieste/Vincoli" — cosi' lo Schema turni mostra il quadro
+        # completo (cosa e' gia' successo + cosa il motore ha assegnato),
+        # non solo il periodo pianificato.
+        colonne_passato_st = _colonne_passato()
+        griglia_passato = pd.DataFrame(index=lavoratori_ordinati, columns=colonne_passato_st)
+        griglia_passato[:] = ""
+        if ultimo_input:
+            for si in ultimo_input.stato_iniziale:
+                if not si.mese_precedente:
+                    continue
+                col = f"{PREFISSO_PASSATO}{si.giorno}"
+                if si.lavoratore_id in griglia_passato.index and col in griglia_passato.columns:
+                    griglia_passato.loc[si.lavoratore_id, col] = si.fascia
+
+        # Le colonne del periodo sono attualmente interi (es. 1, 2, 33):
+        # le converto in stringa per poter applicare la stessa
+        # _etichetta_colonna() (con le stesse icone 🕓/➡️) gia' usata
+        # nella griglia di input, invece della vecchia _etichetta_giorno()
+        # che non distingueva le tre zone.
+        griglia_periodo_str = griglia.rename(columns={g: str(g) for g in griglia.columns})
+        griglia_completa = pd.concat([griglia_passato, griglia_periodo_str], axis=1)
+
         st.subheader("Schema turni")
         st.caption(
             "Colori: 🟡 giallo = Mattino · 🔵 blu = Pomeriggio · 🟣 viola = "
             "Notte · grigio = Ferie · grigio chiarissimo = Riposo esplicito "
             "(forzato o richiesto) · bianco = nessun turno quel giorno "
-            "(giorno libero senza un riposo esplicito registrato)."
+            "(giorno libero senza un riposo esplicito registrato). Le "
+            "colonne 🕓 (situazione iniziale) mostrano gli stessi turni "
+            "gia' effettuati inseriti nella griglia di input, per "
+            "contesto — non sono decisioni del motore."
         )
-        griglia_display = griglia.rename(columns={g: _etichetta_giorno(g) for g in griglia.columns})
+        griglia_display = griglia_completa.rename(
+            columns={c: _etichetta_colonna(c) for c in griglia_completa.columns}
+        )
         try:
             griglia_stilizzata = griglia_display.style.map(_colora)
         except AttributeError:
