@@ -574,7 +574,7 @@ def _sincronizza_numero_lavoratori(n_target: int):
             nuove_righe.append({
                 "id": f"w{indice_persona}",
                 "nome": f"Nome{indice_persona} Cognome{indice_persona}",
-                "ore_settimanali_min": 32,
+                "ore_settimanali_min": 36,
                 "ore_settimanali_max": 40,
                 "mai_notti": False,
             })

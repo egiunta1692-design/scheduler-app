@@ -388,7 +388,6 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     minuti_per_fascia = dati.regole_contrattuali.minuti_per_fascia
     minuti_ferie_giornaliere = dati.regole_contrattuali.minuti_ferie_giornaliere
     settimane = _raggruppa_per_settimana_iso(dati.periodo.anno, dati.periodo.mese, giorni)
-    print("DEBUG settimane trovate:", sorted(settimane.keys()))
 
     # Ore gia' maturate nel mese precedente per la stessa settimana ISO,
     # ESPRESSE IN MINUTI internamente (permette turni con minuti, es.
@@ -490,8 +489,6 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             # puo' quindi rendere il problema infeasible per la prima
             # settimana — e' un segnale corretto che manca l'informazione,
             # non un bug da mascherare abbassando il vincolo.
-            if w == "w1":
-                print(f"DEBUG w1 | settimana={chiave_settimana} | giorni={giorni_settimana} | min_minuti={min_minuti} | max_minuti={max_minuti}")
             model.Add(minuti_totali_settimana <= max_minuti)
             model.Add(minuti_totali_settimana >= min_minuti)
 

@@ -78,18 +78,20 @@ def _genera_stato_iniziale_demo(lavoratori_ids: list[str], anno: int, mese: int)
 
 def get_sample_input() -> InputTurnazione:
     lavoratori = [
-        Lavoratore(id=f"w{i+1}", nome=nome, ore_settimanali_min=32, ore_settimanali_max=40)
-        for i, nome in enumerate(NOMI_LAVORATORI)
+        Lavoratore(id=f"w{i+1}", nome=nome, ore_settimanali_min=36, ore_settimanali_max=40)
+        for i, nome in enumerate(NOMI_LAVORATORI[:15])
     ]
 
     giorno_fine = calcola_giorno_fine_periodo(ANNO_DEMO, MESE_DEMO)
 
     # Fabbisogno costante per tutto il periodo (compresi gli eventuali
     # giorni di sconfinamento nel mese successivo): 3 Mattino + 3 Pomeriggio
-    # + 2 Notte al giorno. Con 20 lavoratori e max_ore_settimanali=36
-    # (=4 turni/settimana a persona), la capacita' totale e' 20*4=80
-    # turni/settimana, ben oltre la domanda settimanale di 8 turni/giorno*7=56:
-    # margine ampio per richieste soft, vincoli admin e fairness.
+    # + 2 Notte al giorno. Con 15 lavoratori e max_ore_settimanali=40
+    # (turni da 7h30m/9h30m, quindi ~5 turni/settimana a persona), la
+    # capacita' totale e' 15*5=75 turni/settimana, sopra la domanda
+    # settimanale di 8 turni/giorno*7=56: margine per richieste soft,
+    # vincoli admin e fairness (piu' risicato che con 20 lavoratori, utile
+    # a testare scenari piu' vicini al limite).
     fabbisogno = []
     for giorno in range(1, giorno_fine + 1):
         fabbisogno.append(Fabbisogno(giorno=giorno, fascia="M", minimo=3))
@@ -133,7 +135,9 @@ def get_sample_input() -> InputTurnazione:
         fabbisogno=fabbisogno,
         vincoli_admin=vincoli_admin,
         richieste_soft=richieste_soft,
-        regole_contrattuali=RegoleContrattuali(),
+        regole_contrattuali=RegoleContrattuali(
+            minuti_per_fascia={"M": 450, "P": 450, "N": 570},  # 7h30m, 7h30m, 9h30m
+        ),
         parametri_fairness=ParametriFairness(),
         stato_iniziale=stato_iniziale,
     )
