@@ -481,6 +481,7 @@ def _init_state():
         "max_notti_consecutive": demo.regole_contrattuali.max_notti_consecutive,
         "giorni_riposo_dopo_notte": demo.regole_contrattuali.giorni_riposo_dopo_notte,
         "max_giorni_consecutivi_lavorati": demo.regole_contrattuali.max_giorni_consecutivi_lavorati,
+        "giorni_riposo_dopo_serie_lavorativa": demo.regole_contrattuali.giorni_riposo_dopo_serie_lavorativa,
         "ore_M": _minuti_M // 60, "minuti_M": _minuti_M % 60,
         "ore_P": _minuti_P // 60, "minuti_P": _minuti_P % 60,
         "ore_N": _minuti_N // 60, "minuti_N": _minuti_N % 60,
@@ -686,6 +687,17 @@ with tab_regole:
                 "un giorno libero. Tiene conto anche dei giorni gia' "
                 "lavorati nella situazione iniziale, a cavallo con il "
                 "mese precedente."
+            ),
+        )
+        st.session_state.regole["giorni_riposo_dopo_serie_lavorativa"] = st.number_input(
+            "Giorni di riposo dopo la serie massima di giorni lavorati",
+            value=st.session_state.regole["giorni_riposo_dopo_serie_lavorativa"], min_value=1, max_value=5,
+            help=(
+                "Quando un lavoratore raggiunge il numero massimo di "
+                "giorni di lavoro consecutivi (sopra), i successivi N "
+                "giorni devono essere vero riposo (nessun turno di alcun "
+                "tipo) — stesso principio del riposo dopo la notte, ma "
+                "applicato alla serie generale di giorni lavorati."
             ),
         )
         st.caption("Durata dei turni (ore e minuti)")
@@ -1143,6 +1155,7 @@ def _costruisci_input() -> InputTurnazione:
         max_notti_consecutive=int(st.session_state.regole["max_notti_consecutive"]),
         giorni_riposo_dopo_notte=int(st.session_state.regole["giorni_riposo_dopo_notte"]),
         max_giorni_consecutivi_lavorati=int(st.session_state.regole["max_giorni_consecutivi_lavorati"]),
+        giorni_riposo_dopo_serie_lavorativa=int(st.session_state.regole["giorni_riposo_dopo_serie_lavorativa"]),
         minuti_per_fascia={
             "M": int(st.session_state.regole["ore_M"]) * 60 + int(st.session_state.regole["minuti_M"]),
             "P": int(st.session_state.regole["ore_P"]) * 60 + int(st.session_state.regole["minuti_P"]),

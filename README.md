@@ -259,6 +259,19 @@ riposo, non solo M/P.
   max+1 giorni consecutivi sia tutto lavorato, riducendo il margine
   iniziale in base a quanti giorni consecutivi risultano gia' lavorati
   subito prima dell'inizio del periodo)
+- **riposo obbligatorio dopo aver raggiunto il massimo di giorni
+  lavorativi consecutivi** (default **2** giorni, configurabile via
+  `regole_contrattuali.giorni_riposo_dopo_serie_lavorativa`): quando un
+  lavoratore raggiunge il numero massimo di giorni consecutivi (sopra),
+  i successivi N giorni devono essere **vero riposo** (nessun turno di
+  alcun tipo), non solo "un giorno libero" — stesso principio del
+  riposo dopo la notte, applicato pero' alla serie generale di giorni
+  lavorati invece che solo alle notti. Non serve rilevare esplicitamente
+  se una serie e' davvero finita (come per le notti): il vincolo sul
+  massimo giorni consecutivi garantisce gia' che il giorno dopo una
+  finestra completamente lavorata non possa essere lavorato, quindi se
+  gli ultimi N giorni sono tutti lavorati e' per costruzione la fine
+  della serie. Tiene conto anche di `stato_iniziale` a cavallo di mese
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a
   cavallo con il mese precedente
 

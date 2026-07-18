@@ -1506,3 +1506,86 @@ def test_massimo_giorni_consecutivi_lavorati_tiene_conto_situazione_iniziale():
         "fabbisogno richiede copertura anche il 2 luglio — impossibile "
         "per l'unico lavoratore disponibile senza superare il limite"
     )
+
+
+# ---------------------------------------------------------------------------
+# Riposo obbligatorio dopo la serie massima di giorni lavorativi consecutivi
+# ---------------------------------------------------------------------------
+
+def test_riposo_dopo_serie_massima_default():
+    """Con il default (2 giorni di riposo dopo la serie massima di 5),
+    un lavoratore che lavora i giorni 1-5 (raggiungendo il massimo) deve
+    avere giorni 6 E 7 liberi. Verificato forzando fabbisogno anche il
+    giorno 7 per l'unico lavoratore disponibile: deve risultare
+    infeasible, dato che il giorno 7 cade nella finestra di riposo
+    obbligatorio."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_riposo_serie_default",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=(
+            [Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 6)]
+            + [Fabbisogno(giorno=7, fascia="M", minimo=1)]
+        ),
+        regole_contrattuali=RegoleContrattuali(),  # default: max=5, riposo_dopo_serie=2
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Dopo 5 giorni consecutivi lavorati (1-5), i giorni 6 e 7 devono "
+        "essere riposo pieno: il fabbisogno il giorno 7 non puo' essere "
+        "coperto dall'unico lavoratore disponibile"
+    )
+
+
+def test_riposo_dopo_serie_massima_giorno_dopo_la_finestra_e_libero():
+    """Stesso scenario, ma con fabbisogno al giorno 8 (dopo la finestra
+    di riposo di 2 giorni, non dentro): deve essere risolvibile."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_riposo_serie_dopo_finestra",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=8),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=(
+            [Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 6)]
+            + [Fabbisogno(giorno=8, fascia="M", minimo=1)]
+        ),
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible", (
+        "Il giorno 8 e' dopo la finestra di riposo di 2 giorni (6,7): "
+        "dovrebbe essere liberamente assegnabile all'unico lavoratore"
+    )
+
+
+def test_riposo_dopo_serie_massima_configurabile():
+    """Verifica che il parametro sia davvero configurabile: con
+    giorni_riposo_dopo_serie_lavorativa=1 (invece del default 2), il
+    giorno 7 (secondo giorno dopo la serie) torna disponibile."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_riposo_serie_configurabile",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=7),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=(
+            [Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 6)]
+            + [Fabbisogno(giorno=7, fascia="M", minimo=1)]
+        ),
+        regole_contrattuali=RegoleContrattuali(giorni_riposo_dopo_serie_lavorativa=1),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible", (
+        "Con giorni_riposo_dopo_serie_lavorativa=1, solo il giorno 6 "
+        "dovrebbe essere riposo obbligatorio: il giorno 7 deve restare "
+        "disponibile"
+    )

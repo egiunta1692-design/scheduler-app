@@ -20,6 +20,13 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
        lavorati; tiene conto anche di stato_iniziale per i giorni gia'
        lavorati a cavallo di mese, stesso schema del massimo notti
        consecutive)
+     - riposo obbligatorio dopo aver raggiunto il massimo di giorni
+       lavorativi consecutivi (default 2 giorni, configurabile via
+       regole_contrattuali.giorni_riposo_dopo_serie_lavorativa): veri
+       giorni di riposo, non solo "un giorno libero" — stesso principio
+       del riposo dopo la notte ma applicato alla serie generale invece
+       che solo alle notti; tiene conto anche di stato_iniziale a
+       cavallo di mese
      (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
 
   2. VINCOLI ADMIN (hard, imposti dal coordinatore):
@@ -304,6 +311,7 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     # nel modello dati fin dall'inizio ma mai collegato a un vincolo reale
     # fino ad ora — bug di progettazione trovato e corretto qui.
     max_consec_giorni = dati.regole_contrattuali.max_giorni_consecutivi_lavorati
+    giorni_riposo_dopo_serie = dati.regole_contrattuali.giorni_riposo_dopo_serie_lavorativa
     for w in lavoratori_ids:
         for start_idx in range(len(giorni) - max_consec_giorni):
             finestra = giorni[start_idx: start_idx + max_consec_giorni + 1]
@@ -334,6 +342,65 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 model.Add(
                     sum(x[(w, g, f)] for g in finestra_iniziale_giorni for f in fasce) <= margine_giorni
                 )
+
+        # Riposo obbligatorio dopo aver raggiunto il massimo di giorni
+        # lavorativi consecutivi: se un lavoratore lavora esattamente
+        # max_consec_giorni giorni di fila (qualsiasi fascia), i
+        # successivi giorni_riposo_dopo_serie giorni devono essere vero
+        # riposo (nessun turno di alcun tipo). Non serve rilevare
+        # esplicitamente "e' davvero la fine della serie" come per le
+        # notti: il vincolo sopra (finestra scorrevole) garantisce gia'
+        # che il giorno dopo una finestra completamente lavorata non
+        # possa essere lavorato, quindi se [g-max+1..g] sono tutti
+        # lavorati, g e' per costruzione l'ULTIMO della serie.
+        #
+        # Le variabili booleane "lavora quel giorno" servono perche'
+        # OnlyEnforceIf accetta liste di letterali booleani, non
+        # espressioni lineari arbitrarie come sum(x[...] for f in fasce).
+        lavora = {}
+        for g in giorni:
+            lavora_g = model.NewBoolVar(f"lavora_{w}_{g}")
+            model.Add(lavora_g == sum(x[(w, g, f)] for f in fasce))
+            lavora[g] = lavora_g
+
+        for g in giorni:
+            finestra_serie = list(range(g - max_consec_giorni + 1, g + 1))
+            if all(gg in giorni for gg in finestra_serie):
+                letterali_serie_completa = [lavora[gg] for gg in finestra_serie]
+                for offset in range(1, giorni_riposo_dopo_serie + 1):
+                    giorno_riposo = g + offset
+                    if giorno_riposo in giorni:
+                        for f in fasce:
+                            model.Add(x[(w, giorno_riposo, f)] == 0).OnlyEnforceIf(
+                                letterali_serie_completa
+                            )
+
+        # Stesso principio a cavallo con il mese precedente: se i giorni
+        # pregressi, sommati ai primi giorni del periodo, raggiungono il
+        # massimo, serve lo stesso riposo.
+        if consecutivi_pregressi_giorni >= max_consec_giorni:
+            # Il massimo e' gia' raggiunto SOLO con la situazione
+            # iniziale (fatto certo, non condizionato a nessuna
+            # variabile): riposo incondizionato dal primo giorno del
+            # periodo.
+            for offset in range(giorni_riposo_dopo_serie):
+                giorno_riposo = giorni[0] + offset
+                if giorno_riposo in giorni:
+                    for f in fasce:
+                        model.Add(x[(w, giorno_riposo, f)] == 0)
+        elif consecutivi_pregressi_giorni > 0:
+            # Il massimo si raggiungerebbe SE i primi giorni del periodo
+            # necessari a completare la serie fossero tutti lavorati
+            # (condizionato: dipende da una decisione del motore).
+            margine_confine = max_consec_giorni - consecutivi_pregressi_giorni
+            finestra_confine = giorni[:margine_confine]
+            if finestra_confine and all(gg in giorni for gg in finestra_confine):
+                letterali_confine = [lavora[gg] for gg in finestra_confine]
+                for offset in range(giorni_riposo_dopo_serie):
+                    giorno_riposo = finestra_confine[-1] + 1 + offset
+                    if giorno_riposo in giorni:
+                        for f in fasce:
+                            model.Add(x[(w, giorno_riposo, f)] == 0).OnlyEnforceIf(letterali_confine)
 
     # Massimo ore settimanali da contratto: vedi blocco dedicato PIU' SOTTO,
     # dopo i vincoli admin e le richieste soft — serve sapere quali giorni

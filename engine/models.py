@@ -75,6 +75,11 @@ class RegoleContrattuali:
     # singolarmente) grazie a come il vincolo viene costruito nel motore.
     giorni_riposo_dopo_notte: int = 2
     max_giorni_consecutivi_lavorati: int = 5
+    # Giorni di riposo pieno obbligatorio dopo aver raggiunto il numero
+    # massimo di giorni lavorativi consecutivi (qualsiasi fascia) definito
+    # sopra: default 2, stesso principio di giorni_riposo_dopo_notte ma
+    # applicato alla serie generale di giorni lavorati, non solo alle notti.
+    giorni_riposo_dopo_serie_lavorativa: int = 2
     # Durata di ciascuna fascia in MINUTI (non ore): permette di
     # configurare turni con minuti (es. 7h30m = 450), non solo ore intere.
     # Nome esplicito "minuti_" invece di "ore_" per rendere l'unita' di
