@@ -1383,3 +1383,126 @@ def test_ferie_giornaliere_con_minuti_frazionari():
         "dovrebbero essere possibili piu' di 3 turni (budget residuo "
         "1695 minuti // 480 = 3)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Massimo giorni di lavoro consecutivi (qualsiasi fascia)
+# ---------------------------------------------------------------------------
+
+def test_massimo_giorni_consecutivi_lavorati_rispettato():
+    """Con un solo lavoratore e fabbisogno che richiederebbe 6 giorni di
+    fila (senza alcun giorno libero), il default di 5 giorni massimi
+    consecutivi rende il problema infeasible: nessuno puo' coprirlo senza
+    violare il vincolo, dato che e' l'unico disponibile."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_max_giorni_consecutivi",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=6),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 7)],  # 6 giorni di fila
+        regole_contrattuali=RegoleContrattuali(),  # default: max_giorni_consecutivi_lavorati=5
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Con il default di 5 giorni consecutivi massimi, un lavoratore "
+        "unico non puo' coprire 6 giorni di fila senza violare il vincolo"
+    )
+
+
+def test_massimo_giorni_consecutivi_lavorati_forza_pausa_con_backup():
+    """Stesso scenario, ma con un lavoratore di riserva disponibile: il
+    motore deve spezzare la serie tra i due, cosi' nessuno dei due supera
+    i 5 giorni consecutivi."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_max_giorni_consecutivi_backup",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=6),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=0, ore_settimanali_max=48),
+            Lavoratore(id="w2", nome="Backup", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 7)],
+        regole_contrattuali=RegoleContrattuali(),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    for w in ("w1", "w2"):
+        giorni_lavorati_w = sorted(a.giorno for a in risultato.assegnazioni if a.lavoratore_id == w)
+        # verifica che non ci siano 6 giorni consecutivi per lo stesso lavoratore
+        consecutivi_max = 0
+        correnti = 0
+        prev = None
+        for g in giorni_lavorati_w:
+            if prev is not None and g == prev + 1:
+                correnti += 1
+            else:
+                correnti = 1
+            consecutivi_max = max(consecutivi_max, correnti)
+            prev = g
+        assert consecutivi_max <= 5, (
+            f"{w} ha {consecutivi_max} giorni consecutivi lavorati, supera il "
+            f"massimo di 5: {giorni_lavorati_w}"
+        )
+
+
+def test_massimo_giorni_consecutivi_lavorati_configurabile():
+    """Verifica che il parametro sia davvero configurabile: con un valore
+    esplicito di 6 (invece del default 5), 6 giorni di fila per un unico
+    lavoratore diventano ammissibili."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_max_giorni_consecutivi_configurabile",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=6),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 7)],
+        regole_contrattuali=RegoleContrattuali(max_giorni_consecutivi_lavorati=6),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible", (
+        "Con max_giorni_consecutivi_lavorati=6, 6 giorni di fila per "
+        "l'unico lavoratore disponibile dovrebbero essere ammissibili"
+    )
+
+
+def test_massimo_giorni_consecutivi_lavorati_tiene_conto_situazione_iniziale():
+    """Un lavoratore che ha gia' lavorato 4 giorni di fila nella
+    situazione iniziale (fino al giorno prima del periodo) puo' lavorare
+    al massimo 1 giorno in piu' prima di dover riposare (5 in totale con
+    il default). Verificato forzando un secondo giorno consecutivo, che
+    deve risultare infeasible per l'unico lavoratore disponibile."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_max_giorni_pregressi",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+            Fabbisogno(giorno=2, fascia="M", minimo=1),
+        ],
+        stato_iniziale=[
+            StatoIniziale(lavoratore_id="w1", giorno=27, fascia="M", mese_precedente=True),
+            StatoIniziale(lavoratore_id="w1", giorno=28, fascia="P", mese_precedente=True),
+            StatoIniziale(lavoratore_id="w1", giorno=29, fascia="M", mese_precedente=True),
+            StatoIniziale(lavoratore_id="w1", giorno=30, fascia="P", mese_precedente=True),
+        ],
+        regole_contrattuali=RegoleContrattuali(),  # default: max_giorni_consecutivi_lavorati=5
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "w1 ha gia' lavorato 4 giorni di fila (27-30 giugno) nella "
+        "situazione iniziale: con il default di 5 giorni massimi, puo' "
+        "lavorare al massimo 1 giorno in piu' (1 luglio), ma il "
+        "fabbisogno richiede copertura anche il 2 luglio — impossibile "
+        "per l'unico lavoratore disponibile senza superare il limite"
+    )

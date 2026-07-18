@@ -15,6 +15,11 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
        il riposo solo da li' in poi, non dopo ogni notte della serie
      - vincolo personale "mai notti" (lavoratore.vincoli_personali.mai_notti)
      - massimo notti consecutive (con override personale possibile)
+     - massimo giorni di lavoro consecutivi, qualsiasi fascia (default 5,
+       configurabile via regole_contrattuali.max_giorni_consecutivi_
+       lavorati; tiene conto anche di stato_iniziale per i giorni gia'
+       lavorati a cavallo di mese, stesso schema del massimo notti
+       consecutive)
      (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
 
   2. VINCOLI ADMIN (hard, imposti dal coordinatore):
@@ -290,6 +295,45 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 finestra_iniziale = giorni[: margine + 1]
                 if finestra_iniziale:
                     model.Add(sum(x[(w, g, "N")] for g in finestra_iniziale) <= margine)
+
+    # Massimo giorni lavorativi consecutivi (qualsiasi fascia, non solo
+    # notte): stesso schema di "massimo notti consecutive" sopra, ma
+    # conta un giorno come "lavorato" se il lavoratore fa M, P O N quel
+    # giorno (non serve sommare le tre fasce separatamente: "un turno al
+    # giorno" garantisce gia' che al massimo una sia 1). Campo presente
+    # nel modello dati fin dall'inizio ma mai collegato a un vincolo reale
+    # fino ad ora — bug di progettazione trovato e corretto qui.
+    max_consec_giorni = dati.regole_contrattuali.max_giorni_consecutivi_lavorati
+    for w in lavoratori_ids:
+        for start_idx in range(len(giorni) - max_consec_giorni):
+            finestra = giorni[start_idx: start_idx + max_consec_giorni + 1]
+            model.Add(sum(x[(w, g, f)] for g in finestra for f in fasce) <= max_consec_giorni)
+
+        # Giorni lavorativi consecutivi gia' effettuati a cavallo con il
+        # mese precedente (qualsiasi fascia, non solo notte): stessa
+        # logica di date reali usata sopra per le notti pregresse.
+        date_lavorate_precedenti = sorted(
+            (data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
+             for si in dati.stato_iniziale
+             if si.lavoratore_id == w and si.mese_precedente),
+            reverse=True,
+        )
+        consecutivi_pregressi_giorni = 0
+        data_attesa_giorni = data_giorno_prima_periodo
+        for data_lavorata in date_lavorate_precedenti:
+            if data_lavorata == data_attesa_giorni:
+                consecutivi_pregressi_giorni += 1
+                data_attesa_giorni -= datetime.timedelta(days=1)
+            else:
+                break
+
+        if consecutivi_pregressi_giorni > 0:
+            margine_giorni = max(max_consec_giorni - consecutivi_pregressi_giorni, 0)
+            finestra_iniziale_giorni = giorni[: margine_giorni + 1]
+            if finestra_iniziale_giorni:
+                model.Add(
+                    sum(x[(w, g, f)] for g in finestra_iniziale_giorni for f in fasce) <= margine_giorni
+                )
 
     # Massimo ore settimanali da contratto: vedi blocco dedicato PIU' SOTTO,
     # dopo i vincoli admin e le richieste soft — serve sapere quali giorni

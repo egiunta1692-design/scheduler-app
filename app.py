@@ -480,6 +480,7 @@ def _init_state():
     st.session_state.regole = {
         "max_notti_consecutive": demo.regole_contrattuali.max_notti_consecutive,
         "giorni_riposo_dopo_notte": demo.regole_contrattuali.giorni_riposo_dopo_notte,
+        "max_giorni_consecutivi_lavorati": demo.regole_contrattuali.max_giorni_consecutivi_lavorati,
         "ore_M": _minuti_M // 60, "minuti_M": _minuti_M % 60,
         "ore_P": _minuti_P // 60, "minuti_P": _minuti_P % 60,
         "ore_N": _minuti_N // 60, "minuti_N": _minuti_N % 60,
@@ -674,6 +675,17 @@ with tab_regole:
                 "divieto di ferie nei giorni precedenti una notte: con 2 "
                 "giorni, ne' il giorno prima ne' quello 2 giorni prima di "
                 "una ferie possono essere notte."
+            ),
+        )
+        st.session_state.regole["max_giorni_consecutivi_lavorati"] = st.number_input(
+            "Massimo giorni di lavoro consecutivi",
+            value=st.session_state.regole["max_giorni_consecutivi_lavorati"], min_value=1, max_value=10,
+            help=(
+                "Numero massimo di giorni di fila con un turno assegnato "
+                "(qualsiasi fascia: M, P o N), oltre i quali serve almeno "
+                "un giorno libero. Tiene conto anche dei giorni gia' "
+                "lavorati nella situazione iniziale, a cavallo con il "
+                "mese precedente."
             ),
         )
         st.caption("Durata dei turni (ore e minuti)")
@@ -1130,6 +1142,7 @@ def _costruisci_input() -> InputTurnazione:
     regole = RegoleContrattuali(
         max_notti_consecutive=int(st.session_state.regole["max_notti_consecutive"]),
         giorni_riposo_dopo_notte=int(st.session_state.regole["giorni_riposo_dopo_notte"]),
+        max_giorni_consecutivi_lavorati=int(st.session_state.regole["max_giorni_consecutivi_lavorati"]),
         minuti_per_fascia={
             "M": int(st.session_state.regole["ore_M"]) * 60 + int(st.session_state.regole["minuti_M"]),
             "P": int(st.session_state.regole["ore_P"]) * 60 + int(st.session_state.regole["minuti_P"]),

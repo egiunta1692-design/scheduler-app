@@ -247,6 +247,18 @@ serie e bloccando in quel caso *tutte* le fasce nella finestra di
 riposo, non solo M/P.
 - massimo notti consecutive (default 2, override possibile per singolo
   lavoratore)
+- **massimo giorni di lavoro consecutivi, qualsiasi fascia** (default
+  **5**, configurabile via `regole_contrattuali.max_giorni_
+  consecutivi_lavorati`): oltre 5 giorni di fila con un turno assegnato
+  (M, P o N indifferentemente) serve almeno un giorno libero. Campo
+  presente nel modello dati fin dall'inizio del progetto ma mai
+  collegato a un vincolo reale — bug di progettazione trovato e
+  corretto. Stesso schema del massimo notti consecutive: tiene conto
+  anche dei giorni gia' lavorati nella situazione iniziale a cavallo di
+  mese (una finestra scorrevole verifica che nessun gruppo di
+  max+1 giorni consecutivi sia tutto lavorato, riducendo il margine
+  iniziale in base a quanti giorni consecutivi risultano gia' lavorati
+  subito prima dell'inizio del periodo)
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a
   cavallo con il mese precedente
 
