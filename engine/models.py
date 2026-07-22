@@ -143,6 +143,26 @@ class ParametriFairness:
     scarto_massimo_P: int = 5
     scarto_massimo_N: int = 5
 
+    # Vincolo HARD (non soft) alternativo a bilancia_copertura_giornaliera:
+    # invece di pesare nell'obiettivo lo squilibrio del TASSO di surplus
+    # (surplus di copertura / fabbisogno minimo, stessa proporzione usata
+    # dal soft — non il conteggio grezzo, che sarebbe fuorviante con
+    # fabbisogni diversi tra giorni), impone uno scarto massimo (per
+    # fascia) tra il giorno col tasso di surplus piu' alto e quello col
+    # tasso piu' basso. MUTUAMENTE ESCLUSIVO con bilancia_copertura_
+    # giornaliera (l'interfaccia disattiva il soft quando l'hard e'
+    # attivo). Espresso in PUNTI PERCENTUALI di tasso (surplus/minimo*100):
+    # scarto_massimo_copertura_M=50 significa che il tasso di surplus di M
+    # non puo' variare di piu' di 50 punti percentuali tra il giorno
+    # peggiore e quello migliore. Giorni/fasce con fabbisogno 0 sono
+    # esclusi dal confronto (come nel soft: il tasso surplus/0 non e'
+    # definito). Default disattivato: e' piu' restrittivo del soft
+    # esistente e puo' ridurre la flessibilita' del motore.
+    bilancia_copertura_giornaliera_hard: bool = False
+    scarto_massimo_copertura_M: int = 50
+    scarto_massimo_copertura_P: int = 50
+    scarto_massimo_copertura_N: int = 50
+
 
 @dataclass
 class StatoIniziale:

@@ -311,6 +311,23 @@ riposo, non solo M/P.
   piu' ore disponibili. I lavoratori con `vincoli_personali.
   mai_notti=True` sono esclusi dal confronto sulla fascia N (fissi a 0
   per contratto: includerli renderebbe il vincolo violato quasi sempre)
+- **scarto massimo rigido opzionale (in punti percentuali) tra giorni
+  per il tasso di surplus di copertura, per fascia** (default
+  **disattivato**, `parametri_fairness.
+  bilancia_copertura_giornaliera_hard` +
+  `scarto_massimo_copertura_M`/`P`/`N`, default **50** punti percentuali
+  ciascuno): alternativa piu' restrittiva al termine di fairness "Spalma
+  il surplus di copertura" (Livello 4 sotto) — invece di scoraggiare la
+  concentrazione del surplus nell'obiettivo, impone che il TASSO di
+  surplus (surplus di copertura quel giorno / fabbisogno minimo di quel
+  giorno — **proporzionale**, non il conteggio grezzo di persone in
+  piu', che sarebbe fuorviante confrontando giorni con fabbisogni
+  diversi) non vari di piu' della soglia tra il giorno col tasso
+  peggiore e quello migliore, calcolato **separatamente per M, P e N**.
+  **Mutuamente esclusivo** col termine soft corrispondente (stessa
+  disattivazione automatica di sopra). Giorni con fabbisogno 0 per
+  quella fascia sono esclusi dal confronto (il tasso surplus/0 non e'
+  definito, stessa esclusione del soft)
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a
   cavallo con il mese precedente
 

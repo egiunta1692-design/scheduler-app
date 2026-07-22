@@ -42,6 +42,16 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
        avere naturalmente meno turni. I lavoratori con
        vincoli_personali.mai_notti=True sono esclusi dal confronto sulla
        fascia N, in entrambe le versioni
+     - scarto massimo HARD opzionale (default disattivato, in punti
+       percentuali) tra giorni per il TASSO di surplus di copertura per
+       fascia (parametri_fairness.bilancia_copertura_giornaliera_hard +
+       scarto_massimo_copertura_M/P/N, default 50 ciascuno): alternativa
+       piu' rigida al termine soft bilancia_copertura_giornaliera,
+       mutuamente esclusiva con esso. Usa la STESSA proporzione
+       surplus/fabbisogno_minimo del soft (non il conteggio grezzo, che
+       sarebbe fuorviante con fabbisogni diversi tra giorni), calcolata
+       separatamente per M, P e N. Giorni con fabbisogno 0 per quella
+       fascia sono esclusi dal confronto (tasso surplus/0 non definito)
      (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
 
   2. VINCOLI ADMIN (hard, imposti dal coordinatore):
@@ -731,6 +741,41 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
     n_lavoratori = len(lavoratori_ids)
     SCALE = 100
     FATTORE_RINORMALIZZAZIONE = 10  # 1 unita' finale = 10 punti percentuali di scarto
+
+    # Vincolo HARD opzionale: scarto massimo (per fascia, in punti
+    # percentuali) tra il TASSO di surplus di copertura (surplus/minimo,
+    # stessa proporzione del soft bilancia_copertura_giornaliera sotto —
+    # non il conteggio grezzo) del giorno peggiore e quello migliore.
+    # Fisicamente qui invece che in LIVELLO 1 perche' riusa le variabili
+    # condivise (minimo_per_giorno_fascia, SCALE) appena definite sopra —
+    # l'ordine dei model.Add() non ha importanza per CP-SAT, e' solo
+    # organizzazione del codice. MUTUAMENTE ESCLUSIVO con
+    # bilancia_copertura_giornaliera (l'interfaccia disattiva il soft
+    # quando questo e' attivo).
+    if dati.parametri_fairness.bilancia_copertura_giornaliera_hard:
+        for f in fasce:
+            scarto_max = getattr(dati.parametri_fairness, f"scarto_massimo_copertura_{f}")
+            tassi_surplus_f = []
+            for g in giorni:
+                minimo_gf = minimo_per_giorno_fascia.get((g, f), 0)
+                if minimo_gf <= 0:
+                    continue  # escluso: tasso surplus/0 non definito, come nel soft
+                count_g = model.NewIntVar(0, n_lavoratori, f"copertura_hard_{f}_{g}")
+                model.Add(count_g == sum(x[(w, g, f)] for w in lavoratori_ids))
+                surplus_g = model.NewIntVar(0, n_lavoratori, f"surplus_hard_{f}_{g}")
+                model.Add(surplus_g == count_g - minimo_gf)
+                tasso_g = model.NewIntVar(0, n_lavoratori * SCALE, f"tasso_hard_{f}_{g}")
+                model.AddDivisionEquality(tasso_g, surplus_g * SCALE, minimo_gf)
+                tassi_surplus_f.append(tasso_g)
+
+            if len(tassi_surplus_f) < 2:
+                continue  # niente da confrontare con 0 o 1 giorno valido
+
+            max_tasso_f = model.NewIntVar(0, n_lavoratori * SCALE, f"max_tasso_hard_{f}")
+            min_tasso_f = model.NewIntVar(0, n_lavoratori * SCALE, f"min_tasso_hard_{f}")
+            model.AddMaxEquality(max_tasso_f, tassi_surplus_f)
+            model.AddMinEquality(min_tasso_f, tassi_surplus_f)
+            model.Add(max_tasso_f - min_tasso_f <= scarto_max)
 
     if dati.parametri_fairness.bilancia_fasce:
         # RISTRUTTURATO: prima confrontava solo il lavoratore col piu' alto

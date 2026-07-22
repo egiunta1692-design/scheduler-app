@@ -537,6 +537,10 @@ def _init_state():
         "bilancia_giorni_settimana": demo.parametri_fairness.bilancia_giorni_settimana,
         "bilancia_ore_settimanali": demo.parametri_fairness.bilancia_ore_settimanali,
         "bilancia_copertura_giornaliera": demo.parametri_fairness.bilancia_copertura_giornaliera,
+        "bilancia_copertura_giornaliera_hard": demo.parametri_fairness.bilancia_copertura_giornaliera_hard,
+        "scarto_massimo_copertura_M": demo.parametri_fairness.scarto_massimo_copertura_M,
+        "scarto_massimo_copertura_P": demo.parametri_fairness.scarto_massimo_copertura_P,
+        "scarto_massimo_copertura_N": demo.parametri_fairness.scarto_massimo_copertura_N,
         "minimizza_pm_consecutivo": demo.parametri_fairness.minimizza_pm_consecutivo,
         "bilancia_proporzione_giornaliera": demo.parametri_fairness.bilancia_proporzione_giornaliera,
     }
@@ -928,14 +932,59 @@ with tab_regole:
                 "gli altri lavoratori per compensare."
             ),
         )
+        st.session_state.fairness["bilancia_copertura_giornaliera_hard"] = st.checkbox(
+            "Scarto massimo tra giorni per il surplus di copertura (vincolo rigido)",
+            value=st.session_state.fairness["bilancia_copertura_giornaliera_hard"],
+            help=(
+                "Alternativa piu' rigida a 'Spalma il surplus di copertura' "
+                "(sotto): invece di scoraggiare la concentrazione del "
+                "surplus nell'obiettivo, impone che il TASSO di surplus "
+                "(surplus di copertura / fabbisogno minimo di quel giorno "
+                "— proporzionale, non il conteggio grezzo, per restare "
+                "confrontabile anche con fabbisogni diversi tra giorni) "
+                "non vari di piu' della soglia impostata (in punti "
+                "percentuali) tra il giorno peggiore e quello migliore, "
+                "separatamente per M, P e N. Le due opzioni sono "
+                "mutuamente esclusive — attivando questa, quella soft "
+                "viene disattivata automaticamente. Giorni con fabbisogno "
+                "0 per quella fascia sono esclusi dal confronto. Puo' "
+                "ridurre la flessibilita' del motore e, in scenari gia' "
+                "stretti, rendere infeasible cio' che con solo la "
+                "penalizzazione soft sarebbe stato risolvibile."
+            ),
+        )
+        if st.session_state.fairness["bilancia_copertura_giornaliera_hard"]:
+            st.session_state.fairness["bilancia_copertura_giornaliera"] = False
+            col_scM, col_scP, col_scN = st.columns(3)
+            with col_scM:
+                st.session_state.fairness["scarto_massimo_copertura_M"] = st.number_input(
+                    "Scarto max % M", value=st.session_state.fairness["scarto_massimo_copertura_M"],
+                    min_value=1, max_value=200,
+                )
+            with col_scP:
+                st.session_state.fairness["scarto_massimo_copertura_P"] = st.number_input(
+                    "Scarto max % P", value=st.session_state.fairness["scarto_massimo_copertura_P"],
+                    min_value=1, max_value=200,
+                )
+            with col_scN:
+                st.session_state.fairness["scarto_massimo_copertura_N"] = st.number_input(
+                    "Scarto max % N", value=st.session_state.fairness["scarto_massimo_copertura_N"],
+                    min_value=1, max_value=200,
+                )
         st.session_state.fairness["bilancia_copertura_giornaliera"] = st.checkbox(
             "Spalma il surplus di copertura il piu' possibile tra i giorni",
             value=st.session_state.fairness["bilancia_copertura_giornaliera"],
+            disabled=st.session_state.fairness["bilancia_copertura_giornaliera_hard"],
             help=(
                 "Il fabbisogno minimo e' un vincolo di 'almeno N persone', quindi "
                 "il motore puo' assegnare piu' persone del minimo in certi giorni. "
                 "Con questa opzione attiva, un eventuale surplus si distribuisce il "
                 "piu' possibile su tutti i giorni invece di concentrarsi su pochi."
+                + (
+                    "\n\nDisattivato: e' attivo il vincolo rigido equivalente "
+                    "sopra (le due opzioni sono mutuamente esclusive)."
+                    if st.session_state.fairness["bilancia_copertura_giornaliera_hard"] else ""
+                )
             ),
         )
         st.session_state.fairness["vieta_pm_consecutivo"] = st.checkbox(
@@ -1355,6 +1404,10 @@ def _costruisci_input() -> InputTurnazione:
         bilancia_giorni_settimana=st.session_state.fairness["bilancia_giorni_settimana"],
         bilancia_ore_settimanali=st.session_state.fairness["bilancia_ore_settimanali"],
         bilancia_copertura_giornaliera=st.session_state.fairness["bilancia_copertura_giornaliera"],
+        bilancia_copertura_giornaliera_hard=st.session_state.fairness["bilancia_copertura_giornaliera_hard"],
+        scarto_massimo_copertura_M=int(st.session_state.fairness["scarto_massimo_copertura_M"]),
+        scarto_massimo_copertura_P=int(st.session_state.fairness["scarto_massimo_copertura_P"]),
+        scarto_massimo_copertura_N=int(st.session_state.fairness["scarto_massimo_copertura_N"]),
         minimizza_pm_consecutivo=st.session_state.fairness["minimizza_pm_consecutivo"],
         bilancia_proporzione_giornaliera=st.session_state.fairness["bilancia_proporzione_giornaliera"],
         peso_bilancia_fasce=int(st.session_state.peso_bilancia_fasce),

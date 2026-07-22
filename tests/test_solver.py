@@ -1824,3 +1824,83 @@ def test_bilancia_fasce_soft_normalizzato_con_part_time_non_va_in_errore():
 
     risultato = genera_turni(dati)
     assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+
+# ---------------------------------------------------------------------------
+# Vincolo HARD opzionale: scarto massimo (in punti percentuali) tra
+# giorni per il tasso di surplus di copertura, alternativa a
+# bilancia_copertura_giornaliera (soft)
+# ---------------------------------------------------------------------------
+
+def test_bilancia_copertura_giornaliera_hard_rifiuta_scarto_troppo_stretto():
+    """4 lavoratori forzati (via admin) a fare M sia il giorno 1 (minimo 2,
+    quindi 2 persone di surplus, tasso 100%) sia il giorno 2 (minimo 4,
+    quindi 0 persone di surplus, tasso 0%): uno scarto tra tassi di 100
+    punti percentuali. Con una soglia stretta (50) deve essere infeasible."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_bilancia_copertura_hard_stretto",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id=f"w{i+1}", nome=f"Test {i+1}", ore_settimanali_min=0, ore_settimanali_max=48)
+            for i in range(4)
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=2),
+            Fabbisogno(giorno=2, fascia="M", minimo=4),
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id=f"a{i}_{g}", lavoratore_id=f"w{i+1}", giorno=g, tipo="turno", fascia="M")
+            for i in range(4) for g in (1, 2)
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(
+            bilancia_copertura_giornaliera_hard=True, scarto_massimo_copertura_M=50,
+        ),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Il tasso di surplus differisce di 100 punti percentuali tra i due "
+        "giorni (100% vs 0%), supera la soglia configurata di 50: deve "
+        "essere infeasible"
+    )
+
+
+def test_bilancia_copertura_giornaliera_hard_accetta_scarto_sufficiente():
+    """Stesso identico scenario, ma con una soglia (150) abbastanza ampia
+    da contenere lo scarto reale di 100 punti percentuali: deve essere
+    risolvibile."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_bilancia_copertura_hard_ampio",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=2),
+        lavoratori=[
+            Lavoratore(id=f"w{i+1}", nome=f"Test {i+1}", ore_settimanali_min=0, ore_settimanali_max=48)
+            for i in range(4)
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=2),
+            Fabbisogno(giorno=2, fascia="M", minimo=4),
+        ],
+        vincoli_admin=[
+            VincoloAdmin(id=f"a{i}_{g}", lavoratore_id=f"w{i+1}", giorno=g, tipo="turno", fascia="M")
+            for i in range(4) for g in (1, 2)
+        ],
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(
+            bilancia_copertura_giornaliera_hard=True, scarto_massimo_copertura_M=150,
+        ),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
+        "Con una soglia di 150 punti percentuali, uno scarto reale di 100 "
+        "dovrebbe essere ammissibile"
+    )
+
+
+def test_bilancia_copertura_giornaliera_hard_disattivato_di_default():
+    """Il vincolo hard e' disattivato di default."""
+    dati = ParametriFairness()
+    assert dati.bilancia_copertura_giornaliera_hard is False
