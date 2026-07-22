@@ -40,7 +40,15 @@ griglie e tabelle, mostra anche il giorno della settimana**
   settimanali lavora sempre su settimane complete lun-dom invece che su
   una settimana finale spezzata a meta'. Esempio: se il mese finisce
   venerdi' 31, il periodo si estende fino a domenica 2 del mese
-  successivo). Poi ore per fascia, notti consecutive, pesi fairness.
+  successivo). Poi **Regole contrattuali**, divise in due espansioni:
+  "⏱️ Riposi e turni consecutivi" (le 4 regole su notti/giorni
+  consecutivi, in griglia 2×2, con un riepilogo testuale in fondo e
+  avvisi automatici se le regole sono impostate in modo insolito tra
+  loro — es. il massimo di notti consecutive superiore al massimo di
+  giorni lavorativi consecutivi) e "🕐 Durata turni e ferie" (con un
+  preset selezionabile per Mattino/Pomeriggio/Notte, oltre ai campi
+  manuali ore+minuti). Un pulsante "↺ Ripristina default" riporta
+  l'intera sezione ai valori di fabbrica.
 - **Lavoratori** — tabella editabile: id, nome, ore contratto (specifiche
   per singolo lavoratore, nessun default globale nascosto), "mai notti"
 - **Calendario** — due griglie:

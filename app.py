@@ -36,6 +36,8 @@ Avvio: streamlit run app.py
 
 import calendar
 import datetime
+import threading
+import time
 from collections import defaultdict
 
 import streamlit as st
@@ -131,6 +133,38 @@ PRESET_FAIRNESS = {
     },
 }
 CHIAVI_PESI_FAIRNESS = list(PRESET_FAIRNESS["Equilibrio reparto (consigliato)"].keys())
+
+# Preset per la durata dei turni (Mattino/Pomeriggio/Notte), stesso
+# pattern di PRESET_FAIRNESS sopra: un selectbox con on_change scrive
+# direttamente nei session_state key dei number_input sottostanti.
+# Le ferie NON sono incluse nel preset (concettualmente indipendenti
+# dalla "filosofia" di durata turno: restano sempre modificabili a
+# parte).
+PRESET_DURATA_TURNI = {
+    "Standard (8h / 8h / 10h)": {
+        "ore_M": 8, "minuti_M": 0, "ore_P": 8, "minuti_P": 0, "ore_N": 10, "minuti_N": 0,
+    },
+    "Turni da 7h30 (7h30 / 7h30 / 9h30)": {
+        "ore_M": 7, "minuti_M": 30, "ore_P": 7, "minuti_P": 30, "ore_N": 9, "minuti_N": 30,
+    },
+    "Turni lunghi (12h / 12h / 12h)": {
+        "ore_M": 12, "minuti_M": 0, "ore_P": 12, "minuti_P": 0, "ore_N": 12, "minuti_N": 0,
+    },
+}
+
+# Valori di default "di fabbrica" per l'intera sezione Regole
+# contrattuali (usati dal pulsante "Ripristina default"): stessi valori
+# dei default della dataclass RegoleContrattuali in engine/models.py.
+REGOLE_DEFAULT = {
+    "max_notti_consecutive": 2,
+    "giorni_riposo_dopo_notte": 2,
+    "max_giorni_consecutivi_lavorati": 5,
+    "giorni_riposo_dopo_serie_lavorativa": 2,
+    "ore_M": 8, "minuti_M": 0,
+    "ore_P": 8, "minuti_P": 0,
+    "ore_N": 10, "minuti_N": 0,
+    "ore_ferie_giornaliere": 8, "minuti_ferie_giornaliere": 0,
+}
 
 OPZIONI_CELLA = (
     [""]
@@ -477,19 +511,24 @@ def _init_state():
     _minuti_N = demo.regole_contrattuali.minuti_per_fascia.get("N", 600)
     _minuti_ferie = demo.regole_contrattuali.minuti_ferie_giornaliere
 
-    st.session_state.regole = {
-        "max_notti_consecutive": demo.regole_contrattuali.max_notti_consecutive,
-        "giorni_riposo_dopo_notte": demo.regole_contrattuali.giorni_riposo_dopo_notte,
-        "max_giorni_consecutivi_lavorati": demo.regole_contrattuali.max_giorni_consecutivi_lavorati,
-        "giorni_riposo_dopo_serie_lavorativa": demo.regole_contrattuali.giorni_riposo_dopo_serie_lavorativa,
-        "vieta_pm_consecutivo": demo.regole_contrattuali.vieta_pm_consecutivo,
-        "ore_M": _minuti_M // 60, "minuti_M": _minuti_M % 60,
-        "ore_P": _minuti_P // 60, "minuti_P": _minuti_P % 60,
-        "ore_N": _minuti_N // 60, "minuti_N": _minuti_N % 60,
-        "ore_ferie_giornaliere": _minuti_ferie // 60, "minuti_ferie_giornaliere": _minuti_ferie % 60,
-    }
+    # Chiavi FLAT (non piu' annidate in un dict "regole") direttamente in
+    # session_state: necessario per il pattern preset con key=/on_change
+    # (stesso usato per i pesi fairness, PRESET_FAIRNESS) — un selectbox
+    # puo' scrivere direttamente st.session_state[chiave] solo se il
+    # number_input corrispondente e' anch'esso legato con key=, cosa che
+    # richiede chiavi flat, non annidate in un dict.
+    st.session_state.max_notti_consecutive = demo.regole_contrattuali.max_notti_consecutive
+    st.session_state.giorni_riposo_dopo_notte = demo.regole_contrattuali.giorni_riposo_dopo_notte
+    st.session_state.max_giorni_consecutivi_lavorati = demo.regole_contrattuali.max_giorni_consecutivi_lavorati
+    st.session_state.giorni_riposo_dopo_serie_lavorativa = demo.regole_contrattuali.giorni_riposo_dopo_serie_lavorativa
+    st.session_state.ore_M, st.session_state.minuti_M = _minuti_M // 60, _minuti_M % 60
+    st.session_state.ore_P, st.session_state.minuti_P = _minuti_P // 60, _minuti_P % 60
+    st.session_state.ore_N, st.session_state.minuti_N = _minuti_N // 60, _minuti_N % 60
+    st.session_state.ore_ferie_giornaliere = _minuti_ferie // 60
+    st.session_state.minuti_ferie_giornaliere = _minuti_ferie % 60
 
     st.session_state.fairness = {
+        "vieta_pm_consecutivo": demo.regole_contrattuali.vieta_pm_consecutivo,
         "bilancia_fasce": demo.parametri_fairness.bilancia_fasce,
         "bilancia_fasce_hard": demo.parametri_fairness.bilancia_fasce_hard,
         "scarto_massimo_M": demo.parametri_fairness.scarto_massimo_M,
@@ -668,107 +707,154 @@ with tab_regole:
         st.caption(testo_periodo)
 
         st.subheader("Regole contrattuali")
-        st.session_state.regole["max_notti_consecutive"] = st.number_input(
-            "Massimo notti consecutive", value=st.session_state.regole["max_notti_consecutive"], min_value=1, max_value=5
-        )
-        st.session_state.regole["giorni_riposo_dopo_notte"] = st.number_input(
-            "Giorni di riposo dopo la notte (o serie di notti)",
-            value=st.session_state.regole["giorni_riposo_dopo_notte"], min_value=1, max_value=5,
-            help=(
-                "Numero di giorni di riposo obbligatorio dopo un turno "
-                "notturno, o dopo l'ultima notte di una serie consecutiva "
-                "(non dopo ognuna singolarmente). Si applica anche al "
-                "divieto di ferie nei giorni precedenti una notte: con 2 "
-                "giorni, ne' il giorno prima ne' quello 2 giorni prima di "
-                "una ferie possono essere notte."
-            ),
-        )
-        st.session_state.regole["max_giorni_consecutivi_lavorati"] = st.number_input(
-            "Massimo giorni di lavoro consecutivi",
-            value=st.session_state.regole["max_giorni_consecutivi_lavorati"], min_value=1, max_value=10,
-            help=(
-                "Numero massimo di giorni di fila con un turno assegnato "
-                "(qualsiasi fascia: M, P o N), oltre i quali serve almeno "
-                "un giorno libero. Tiene conto anche dei giorni gia' "
-                "lavorati nella situazione iniziale, a cavallo con il "
-                "mese precedente."
-            ),
-        )
-        st.session_state.regole["giorni_riposo_dopo_serie_lavorativa"] = st.number_input(
-            "Giorni di riposo dopo la serie massima di giorni lavorati",
-            value=st.session_state.regole["giorni_riposo_dopo_serie_lavorativa"], min_value=1, max_value=5,
-            help=(
-                "Quando un lavoratore raggiunge il numero massimo di "
-                "giorni di lavoro consecutivi (sopra), i successivi N "
-                "giorni devono essere vero riposo (nessun turno di alcun "
-                "tipo) — stesso principio del riposo dopo la notte, ma "
-                "applicato alla serie generale di giorni lavorati."
-            ),
-        )
-        st.session_state.regole["vieta_pm_consecutivo"] = st.checkbox(
-            "Vieta del tutto Pomeriggio -> Mattino su giorni consecutivi (vincolo rigido)",
-            value=st.session_state.regole["vieta_pm_consecutivo"],
-            help=(
-                "Alternativa piu' rigida al termine di fairness 'Minimizza "
-                "le sequenze Pomeriggio -> Mattino' (nella scheda "
-                "Fairness): invece di scoraggiarle nell'obiettivo, le "
-                "vieta del tutto come vincolo rigido. Le due opzioni sono "
-                "mutuamente esclusive — attivando questa, quella soft "
-                "viene disattivata automaticamente. Puo' ridurre la "
-                "flessibilita' del motore e, in scenari con pochi "
-                "lavoratori disponibili, rendere il problema infeasible "
-                "dove altrimenti sarebbe stato risolvibile con solo la "
-                "penalizzazione soft."
-            ),
-        )
-        if st.session_state.regole["vieta_pm_consecutivo"]:
-            st.session_state.fairness["minimizza_pm_consecutivo"] = False
-        st.caption("Durata dei turni (ore e minuti)")
-        col_oreM, col_minM = st.columns(2)
-        with col_oreM:
-            st.session_state.regole["ore_M"] = st.number_input(
-                "Ore Mattino", value=st.session_state.regole["ore_M"], min_value=0, max_value=23,
-            )
-        with col_minM:
-            st.session_state.regole["minuti_M"] = st.number_input(
-                "Minuti Mattino", value=st.session_state.regole["minuti_M"], min_value=0, max_value=59, step=5,
+
+        if st.button(
+            "↺ Ripristina default", key="reset_regole_btn",
+            help="Riporta tutte le regole di questa sezione ai valori di fabbrica.",
+        ):
+            for _chiave, _valore in REGOLE_DEFAULT.items():
+                st.session_state[_chiave] = _valore
+            # Riallinea anche la selectbox del preset: REGOLE_DEFAULT
+            # corrisponde esattamente al preset "Standard", altrimenti
+            # dopo il reset mostrerebbe ancora l'ultimo preset scelto pur
+            # avendo gia' i valori standard sotto.
+            st.session_state.preset_durata_selezionato = "Standard (8h / 8h / 10h)"
+            st.rerun()
+
+        with st.expander("⏱️ Riposi e turni consecutivi", expanded=True):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.number_input(
+                    "Massimo notti consecutive", key="max_notti_consecutive",
+                    min_value=1, max_value=5,
+                )
+                st.number_input(
+                    "Massimo giorni di lavoro consecutivi", key="max_giorni_consecutivi_lavorati",
+                    min_value=1, max_value=10,
+                    help=(
+                        "Numero massimo di giorni di fila con un turno assegnato "
+                        "(qualsiasi fascia: M, P o N), oltre i quali serve almeno "
+                        "un giorno libero. Tiene conto anche dei giorni gia' "
+                        "lavorati nella situazione iniziale, a cavallo con il "
+                        "mese precedente."
+                    ),
+                )
+            with col_b:
+                st.number_input(
+                    "Giorni di riposo dopo la notte (o serie di notti)",
+                    key="giorni_riposo_dopo_notte", min_value=1, max_value=5,
+                    help=(
+                        "Numero di giorni di riposo obbligatorio dopo un turno "
+                        "notturno, o dopo l'ultima notte di una serie consecutiva "
+                        "(non dopo ognuna singolarmente). Si applica anche al "
+                        "divieto di ferie nei giorni precedenti una notte: con 2 "
+                        "giorni, ne' il giorno prima ne' quello 2 giorni prima di "
+                        "una ferie possono essere notte."
+                    ),
+                )
+                st.number_input(
+                    "Giorni di riposo dopo la serie massima di giorni lavorati",
+                    key="giorni_riposo_dopo_serie_lavorativa", min_value=1, max_value=5,
+                    help=(
+                        "Quando un lavoratore raggiunge il numero massimo di "
+                        "giorni di lavoro consecutivi (a sinistra), i successivi "
+                        "N giorni devono essere vero riposo (nessun turno di "
+                        "alcun tipo) — stesso principio del riposo dopo la "
+                        "notte, ma applicato alla serie generale di giorni "
+                        "lavorati."
+                    ),
+                )
+
+            if st.session_state.max_notti_consecutive > st.session_state.max_giorni_consecutivi_lavorati:
+                st.warning(
+                    f"Il massimo di notti consecutive "
+                    f"({st.session_state.max_notti_consecutive}) supera il massimo "
+                    f"di giorni di lavoro consecutivi "
+                    f"({st.session_state.max_giorni_consecutivi_lavorati}): una "
+                    f"serie di sole notti finirebbe comunque per superare il "
+                    f"limite generale, rendendo il primo vincolo di fatto mai "
+                    f"raggiungibile per intero."
+                )
+            if st.session_state.giorni_riposo_dopo_serie_lavorativa < st.session_state.giorni_riposo_dopo_notte:
+                st.warning(
+                    f"Il riposo dopo la serie massima di giorni lavorati "
+                    f"({st.session_state.giorni_riposo_dopo_serie_lavorativa} "
+                    f"giorni) e' piu' corto di quello dopo la notte "
+                    f"({st.session_state.giorni_riposo_dopo_notte} giorni): puo' "
+                    f"essere intenzionale, ma e' una combinazione insolita — di "
+                    f"norma una serie lunga di turni merita un riposo almeno "
+                    f"pari a quello dopo una notte."
+                )
+
+            st.caption(
+                f"Con queste regole: dopo {st.session_state.max_notti_consecutive} "
+                f"notti consecutive servono {st.session_state.giorni_riposo_dopo_notte} "
+                f"giorni di riposo pieno; dopo "
+                f"{st.session_state.max_giorni_consecutivi_lavorati} giorni di "
+                f"lavoro di fila (qualsiasi turno) ne servono "
+                f"{st.session_state.giorni_riposo_dopo_serie_lavorativa}."
             )
 
-        col_oreP, col_minP = st.columns(2)
-        with col_oreP:
-            st.session_state.regole["ore_P"] = st.number_input(
-                "Ore Pomeriggio", value=st.session_state.regole["ore_P"], min_value=0, max_value=23,
-            )
-        with col_minP:
-            st.session_state.regole["minuti_P"] = st.number_input(
-                "Minuti Pomeriggio", value=st.session_state.regole["minuti_P"], min_value=0, max_value=59, step=5,
-            )
+        with st.expander("🕐 Durata turni e ferie"):
+            def _applica_preset_durata():
+                valori = PRESET_DURATA_TURNI[st.session_state.preset_durata_selezionato]
+                for chiave, valore in valori.items():
+                    st.session_state[chiave] = valore
 
-        col_oreN, col_minN = st.columns(2)
-        with col_oreN:
-            st.session_state.regole["ore_N"] = st.number_input(
-                "Ore Notte", value=st.session_state.regole["ore_N"], min_value=0, max_value=23,
-            )
-        with col_minN:
-            st.session_state.regole["minuti_N"] = st.number_input(
-                "Minuti Notte", value=st.session_state.regole["minuti_N"], min_value=0, max_value=59, step=5,
-            )
-
-        col_oreF, col_minF = st.columns(2)
-        with col_oreF:
-            st.session_state.regole["ore_ferie_giornaliere"] = st.number_input(
-                "Ore ferie giornaliere", value=st.session_state.regole["ore_ferie_giornaliere"],
-                min_value=0, max_value=23,
+            st.selectbox(
+                "Preset durata turni",
+                options=list(PRESET_DURATA_TURNI.keys()),
+                key="preset_durata_selezionato",
+                on_change=_applica_preset_durata,
                 help=(
-                    "Ore (+ minuti a fianco) virtuali che una giornata di "
-                    "ferie aggiunge al monte ore settimanale (e' comunque "
-                    "tempo retribuito). Il riposo non aggiunge nulla."
+                    "Punto di partenza per Mattino/Pomeriggio/Notte sotto — "
+                    "restano comunque modificabili singolarmente dopo averlo "
+                    "scelto. Le ferie non sono incluse nel preset."
                 ),
             )
-        with col_minF:
-            st.session_state.regole["minuti_ferie_giornaliere"] = st.number_input(
-                "Minuti ferie giornaliere", value=st.session_state.regole["minuti_ferie_giornaliere"],
-                min_value=0, max_value=59, step=5,
+
+            st.caption("Durata dei turni (ore e minuti)")
+            col_oreM, col_minM = st.columns(2)
+            with col_oreM:
+                st.number_input("Ore Mattino", key="ore_M", min_value=0, max_value=23)
+            with col_minM:
+                st.number_input("Minuti Mattino", key="minuti_M", min_value=0, max_value=59, step=5)
+
+            col_oreP, col_minP = st.columns(2)
+            with col_oreP:
+                st.number_input("Ore Pomeriggio", key="ore_P", min_value=0, max_value=23)
+            with col_minP:
+                st.number_input("Minuti Pomeriggio", key="minuti_P", min_value=0, max_value=59, step=5)
+
+            col_oreN, col_minN = st.columns(2)
+            with col_oreN:
+                st.number_input("Ore Notte", key="ore_N", min_value=0, max_value=23)
+            with col_minN:
+                st.number_input("Minuti Notte", key="minuti_N", min_value=0, max_value=59, step=5)
+
+            col_oreF, col_minF = st.columns(2)
+            with col_oreF:
+                st.number_input(
+                    "Ore ferie giornaliere", key="ore_ferie_giornaliere",
+                    min_value=0, max_value=23,
+                    help=(
+                        "Ore (+ minuti a fianco) virtuali che una giornata di "
+                        "ferie aggiunge al monte ore settimanale (e' comunque "
+                        "tempo retribuito). Il riposo non aggiunge nulla."
+                    ),
+                )
+            with col_minF:
+                st.number_input(
+                    "Minuti ferie giornaliere", key="minuti_ferie_giornaliere",
+                    min_value=0, max_value=59, step=5,
+                )
+
+            st.caption(
+                f"Riepilogo: Mattino {st.session_state.ore_M}h{st.session_state.minuti_M:02d}m, "
+                f"Pomeriggio {st.session_state.ore_P}h{st.session_state.minuti_P:02d}m, "
+                f"Notte {st.session_state.ore_N}h{st.session_state.minuti_N:02d}m, "
+                f"ferie {st.session_state.ore_ferie_giornaliere}h"
+                f"{st.session_state.minuti_ferie_giornaliere:02d}m equivalenti."
             )
 
     with col2:
@@ -852,10 +938,27 @@ with tab_regole:
                 "piu' possibile su tutti i giorni invece di concentrarsi su pochi."
             ),
         )
+        st.session_state.fairness["vieta_pm_consecutivo"] = st.checkbox(
+            "Vieta del tutto Pomeriggio -> Mattino su giorni consecutivi (vincolo rigido)",
+            value=st.session_state.fairness["vieta_pm_consecutivo"],
+            help=(
+                "Alternativa piu' rigida a 'Minimizza le sequenze "
+                "Pomeriggio -> Mattino' (sotto): invece di scoraggiarle "
+                "nell'obiettivo, le vieta del tutto come vincolo rigido. "
+                "Le due opzioni sono mutuamente esclusive — attivando "
+                "questa, quella soft viene disattivata automaticamente. "
+                "Puo' ridurre la flessibilita' del motore e, in scenari "
+                "con pochi lavoratori disponibili, rendere il problema "
+                "infeasible dove altrimenti sarebbe stato risolvibile con "
+                "solo la penalizzazione soft."
+            ),
+        )
+        if st.session_state.fairness["vieta_pm_consecutivo"]:
+            st.session_state.fairness["minimizza_pm_consecutivo"] = False
         st.session_state.fairness["minimizza_pm_consecutivo"] = st.checkbox(
             "Minimizza le sequenze Pomeriggio -> Mattino su giorni consecutivi",
             value=st.session_state.fairness["minimizza_pm_consecutivo"],
-            disabled=st.session_state.regole["vieta_pm_consecutivo"],
+            disabled=st.session_state.fairness["vieta_pm_consecutivo"],
             help=(
                 "Un turno Pomeriggio seguito da un turno Mattino il giorno dopo "
                 "lascia un riposo molto piu' corto (P finisce sera tardi, M "
@@ -865,9 +968,8 @@ with tab_regole:
                 "premiando implicitamente M->P rispetto a P->M."
                 + (
                     "\n\nDisattivato: e' attivo il vincolo rigido equivalente "
-                    "in 'Regole contrattuali' (le due opzioni sono mutuamente "
-                    "esclusive)."
-                    if st.session_state.regole["vieta_pm_consecutivo"] else ""
+                    "sopra (le due opzioni sono mutuamente esclusive)."
+                    if st.session_state.fairness["vieta_pm_consecutivo"] else ""
                 )
             ),
         )
@@ -1228,19 +1330,19 @@ def _costruisci_input() -> InputTurnazione:
         st.warning(f"Alcuni codici nella griglia calendario non sono validi e sono stati ignorati: {dettaglio}")
 
     regole = RegoleContrattuali(
-        max_notti_consecutive=int(st.session_state.regole["max_notti_consecutive"]),
-        giorni_riposo_dopo_notte=int(st.session_state.regole["giorni_riposo_dopo_notte"]),
-        max_giorni_consecutivi_lavorati=int(st.session_state.regole["max_giorni_consecutivi_lavorati"]),
-        giorni_riposo_dopo_serie_lavorativa=int(st.session_state.regole["giorni_riposo_dopo_serie_lavorativa"]),
-        vieta_pm_consecutivo=bool(st.session_state.regole["vieta_pm_consecutivo"]),
+        max_notti_consecutive=int(st.session_state.max_notti_consecutive),
+        giorni_riposo_dopo_notte=int(st.session_state.giorni_riposo_dopo_notte),
+        max_giorni_consecutivi_lavorati=int(st.session_state.max_giorni_consecutivi_lavorati),
+        giorni_riposo_dopo_serie_lavorativa=int(st.session_state.giorni_riposo_dopo_serie_lavorativa),
+        vieta_pm_consecutivo=bool(st.session_state.fairness["vieta_pm_consecutivo"]),
         minuti_per_fascia={
-            "M": int(st.session_state.regole["ore_M"]) * 60 + int(st.session_state.regole["minuti_M"]),
-            "P": int(st.session_state.regole["ore_P"]) * 60 + int(st.session_state.regole["minuti_P"]),
-            "N": int(st.session_state.regole["ore_N"]) * 60 + int(st.session_state.regole["minuti_N"]),
+            "M": int(st.session_state.ore_M) * 60 + int(st.session_state.minuti_M),
+            "P": int(st.session_state.ore_P) * 60 + int(st.session_state.minuti_P),
+            "N": int(st.session_state.ore_N) * 60 + int(st.session_state.minuti_N),
         },
         minuti_ferie_giornaliere=(
-            int(st.session_state.regole["ore_ferie_giornaliere"]) * 60
-            + int(st.session_state.regole["minuti_ferie_giornaliere"])
+            int(st.session_state.ore_ferie_giornaliere) * 60
+            + int(st.session_state.minuti_ferie_giornaliere)
         ),
     )
 
@@ -1295,9 +1397,43 @@ if st.button("Genera turni", type="primary"):
     try:
         dati = _costruisci_input()
         tempo_max = st.session_state["tempo_max_secondi"]
-        with st.spinner(f"Calcolo dello schema turni in corso (fino a {tempo_max}s)..."):
-            st.session_state.risultato = genera_turni(dati, tempo_max_secondi=tempo_max)
-            st.session_state.ultimo_input = dati
+
+        # Il calcolo vero e proprio (genera_turni, bloccante) gira in un
+        # thread separato, cosi' lo script principale di Streamlit resta
+        # libero di aggiornare un contatore del tempo trascorso ogni
+        # frazione di secondo — un semplice st.spinner mostrerebbe solo
+        # un messaggio statico, senza indicazione di quanto tempo e'
+        # davvero passato rispetto al limite impostato.
+        risultato_container: dict = {}
+
+        def _esegui_calcolo():
+            try:
+                risultato_container["risultato"] = genera_turni(dati, tempo_max_secondi=tempo_max)
+            except Exception as exc:  # catturato qui, rilanciato piu' sotto nel thread principale
+                risultato_container["errore"] = exc
+
+        thread_calcolo = threading.Thread(target=_esegui_calcolo, daemon=True)
+        istante_inizio = time.time()
+        thread_calcolo.start()
+
+        placeholder_contatore = st.empty()
+        while thread_calcolo.is_alive():
+            trascorso = time.time() - istante_inizio
+            placeholder_contatore.info(
+                f"⏳ Calcolo dello schema turni in corso... **{trascorso:.0f}s** "
+                f"(limite impostato: {tempo_max}s)"
+            )
+            time.sleep(0.3)
+        thread_calcolo.join()
+        trascorso_totale = time.time() - istante_inizio
+        placeholder_contatore.empty()
+
+        if "errore" in risultato_container:
+            raise risultato_container["errore"]
+
+        st.session_state.risultato = risultato_container["risultato"]
+        st.session_state.ultimo_input = dati
+        st.success(f"Calcolo completato in {trascorso_totale:.1f}s")
     except Exception as e:
         st.error(f"Errore nella costruzione dei dati o nel calcolo: {e}")
         st.session_state.risultato = None
