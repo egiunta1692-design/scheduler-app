@@ -92,6 +92,17 @@ class RegoleContrattuali:
     # settimanale del lavoratore (per contratto), distinte dal riposo che
     # non aggiunge nulla. Valore unico per tutto il reparto.
     minuti_ferie_giornaliere: int = 480  # 8h
+    # Vincolo HARD (non soft): vieta del tutto un turno Mattino il giorno
+    # subito dopo un turno Pomeriggio. Alternativa piu' rigida al termine
+    # di fairness parametri_fairness.minimizza_pm_consecutivo (soft, pesa
+    # la sequenza nell'obiettivo ma non la vieta) — le due opzioni sono
+    # pensate come MUTUAMENTE ESCLUSIVE (l'interfaccia disabilita il
+    # termine soft quando questo e' attivo, dato che minimizzare qualcosa
+    # di gia' vietato del tutto non avrebbe senso). Default disattivato,
+    # perche' e' un vincolo piu' restrittivo del default esistente e puo'
+    # ridurre la flessibilita' del motore (rischio di infeasibility in
+    # scenari con pochi lavoratori disponibili).
+    vieta_pm_consecutivo: bool = False
 
 
 @dataclass

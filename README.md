@@ -272,6 +272,18 @@ riposo, non solo M/P.
   finestra completamente lavorata non possa essere lavorato, quindi se
   gli ultimi N giorni sono tutti lavorati e' per costruzione la fine
   della serie. Tiene conto anche di `stato_iniziale` a cavallo di mese
+- **vieto rigido opzionale di Pomeriggio -> Mattino su giorni
+  consecutivi** (default **disattivato**, `regole_contrattuali.
+  vieta_pm_consecutivo`): alternativa piu' restrittiva al termine di
+  fairness "Minimizza le sequenze Pomeriggio -> Mattino" (Livello 4
+  sotto) — invece di scoraggiarle nell'obiettivo, le vieta del tutto.
+  **Mutuamente esclusivo** col termine soft: l'interfaccia disattiva
+  automaticamente quello soft quando questo e' attivo (e lo mostra
+  disabilitato). Puo' ridurre la flessibilita' del motore e in scenari
+  con pochi lavoratori rendere infeasible cio' che con solo la
+  penalizzazione soft sarebbe stato risolvibile. Tiene conto anche di
+  `stato_iniziale`: se l'ultimo turno prima del periodo e' Pomeriggio,
+  vieta il Mattino sul primo giorno del periodo
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a
   cavallo con il mese precedente
 

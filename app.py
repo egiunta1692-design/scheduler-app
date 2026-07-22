@@ -482,6 +482,7 @@ def _init_state():
         "giorni_riposo_dopo_notte": demo.regole_contrattuali.giorni_riposo_dopo_notte,
         "max_giorni_consecutivi_lavorati": demo.regole_contrattuali.max_giorni_consecutivi_lavorati,
         "giorni_riposo_dopo_serie_lavorativa": demo.regole_contrattuali.giorni_riposo_dopo_serie_lavorativa,
+        "vieta_pm_consecutivo": demo.regole_contrattuali.vieta_pm_consecutivo,
         "ore_M": _minuti_M // 60, "minuti_M": _minuti_M % 60,
         "ore_P": _minuti_P // 60, "minuti_P": _minuti_P % 60,
         "ore_N": _minuti_N // 60, "minuti_N": _minuti_N % 60,
@@ -700,6 +701,24 @@ with tab_regole:
                 "applicato alla serie generale di giorni lavorati."
             ),
         )
+        st.session_state.regole["vieta_pm_consecutivo"] = st.checkbox(
+            "Vieta del tutto Pomeriggio -> Mattino su giorni consecutivi (vincolo rigido)",
+            value=st.session_state.regole["vieta_pm_consecutivo"],
+            help=(
+                "Alternativa piu' rigida al termine di fairness 'Minimizza "
+                "le sequenze Pomeriggio -> Mattino' (nella scheda "
+                "Fairness): invece di scoraggiarle nell'obiettivo, le "
+                "vieta del tutto come vincolo rigido. Le due opzioni sono "
+                "mutuamente esclusive — attivando questa, quella soft "
+                "viene disattivata automaticamente. Puo' ridurre la "
+                "flessibilita' del motore e, in scenari con pochi "
+                "lavoratori disponibili, rendere il problema infeasible "
+                "dove altrimenti sarebbe stato risolvibile con solo la "
+                "penalizzazione soft."
+            ),
+        )
+        if st.session_state.regole["vieta_pm_consecutivo"]:
+            st.session_state.fairness["minimizza_pm_consecutivo"] = False
         st.caption("Durata dei turni (ore e minuti)")
         col_oreM, col_minM = st.columns(2)
         with col_oreM:
@@ -786,6 +805,7 @@ with tab_regole:
         st.session_state.fairness["minimizza_pm_consecutivo"] = st.checkbox(
             "Minimizza le sequenze Pomeriggio -> Mattino su giorni consecutivi",
             value=st.session_state.fairness["minimizza_pm_consecutivo"],
+            disabled=st.session_state.regole["vieta_pm_consecutivo"],
             help=(
                 "Un turno Pomeriggio seguito da un turno Mattino il giorno dopo "
                 "lascia un riposo molto piu' corto (P finisce sera tardi, M "
@@ -793,6 +813,12 @@ with tab_regole:
                 "(quasi un giorno intero di margine). Non viene vietato — spesso "
                 "e' inevitabile per la copertura — ma minimizzato dove possibile, "
                 "premiando implicitamente M->P rispetto a P->M."
+                + (
+                    "\n\nDisattivato: e' attivo il vincolo rigido equivalente "
+                    "in 'Regole contrattuali' (le due opzioni sono mutuamente "
+                    "esclusive)."
+                    if st.session_state.regole["vieta_pm_consecutivo"] else ""
+                )
             ),
         )
         st.session_state.fairness["bilancia_proporzione_giornaliera"] = st.checkbox(
@@ -1156,6 +1182,7 @@ def _costruisci_input() -> InputTurnazione:
         giorni_riposo_dopo_notte=int(st.session_state.regole["giorni_riposo_dopo_notte"]),
         max_giorni_consecutivi_lavorati=int(st.session_state.regole["max_giorni_consecutivi_lavorati"]),
         giorni_riposo_dopo_serie_lavorativa=int(st.session_state.regole["giorni_riposo_dopo_serie_lavorativa"]),
+        vieta_pm_consecutivo=bool(st.session_state.regole["vieta_pm_consecutivo"]),
         minuti_per_fascia={
             "M": int(st.session_state.regole["ore_M"]) * 60 + int(st.session_state.regole["minuti_M"]),
             "P": int(st.session_state.regole["ore_P"]) * 60 + int(st.session_state.regole["minuti_P"]),

@@ -1589,3 +1589,76 @@ def test_riposo_dopo_serie_massima_configurabile():
         "dovrebbe essere riposo obbligatorio: il giorno 7 deve restare "
         "disponibile"
     )
+
+
+# ---------------------------------------------------------------------------
+# Vincolo HARD opzionale: vieta sequenze Pomeriggio -> Mattino
+# ---------------------------------------------------------------------------
+
+def test_vieta_pm_consecutivo_nessuna_sequenza_nel_risultato():
+    """Con il vincolo hard attivo, nessuna sequenza P (oggi) -> M (domani)
+    deve comparire nel risultato, su nessun lavoratore. Scenario
+    volutamente semplice e con ampio margine (pochi turni richiesti,
+    diversi lavoratori disponibili) per essere sicuri che resti
+    risolvibile e la verifica sia significativa."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_vieta_pm_hard",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=10),  # 1 giu 2026 = lunedi'
+        lavoratori=[
+            Lavoratore(id=f"w{i+1}", nome=f"Test {i+1}", ore_settimanali_min=0, ore_settimanali_max=48)
+            for i in range(4)
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 11)]
+        + [Fabbisogno(giorno=g, fascia="P", minimo=1) for g in range(1, 11)],
+        regole_contrattuali=RegoleContrattuali(vieta_pm_consecutivo=True),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    per_lavoratore_giorno = {}
+    for a in risultato.assegnazioni:
+        per_lavoratore_giorno[(a.lavoratore_id, a.giorno)] = a.fascia
+
+    giorni_periodo = sorted({a.giorno for a in risultato.assegnazioni})
+    for w in {a.lavoratore_id for a in risultato.assegnazioni}:
+        for g in giorni_periodo:
+            if per_lavoratore_giorno.get((w, g)) == "P" and per_lavoratore_giorno.get((w, g + 1)) == "M":
+                assert False, f"{w} ha P il giorno {g} seguito da M il giorno {g + 1}, vietato"
+
+
+def test_vieta_pm_consecutivo_disattivato_di_default():
+    """Il vincolo hard e' disattivato di default: RegoleContrattuali()
+    senza argomenti non lo attiva."""
+    dati = RegoleContrattuali()
+    assert dati.vieta_pm_consecutivo is False
+
+
+def test_vieta_pm_consecutivo_blocca_confine_situazione_iniziale():
+    """Se l'ultimo giorno di situazione iniziale (immediatamente prima
+    del periodo) e' Pomeriggio, il Mattino del primo giorno del periodo
+    deve essere vietato per lo stesso lavoratore."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_vieta_pm_confine",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=7, giorno_inizio=1, giorno_fine=1),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Test Uno", ore_settimanali_min=0, ore_settimanali_max=40),
+        ],
+        fabbisogno=[],
+        vincoli_admin=[
+            VincoloAdmin(id="adm1", lavoratore_id="w1", giorno=1, tipo="turno", fascia="M"),
+        ],
+        stato_iniziale=[
+            StatoIniziale(lavoratore_id="w1", giorno=30, fascia="P", mese_precedente=True),
+        ],
+        regole_contrattuali=RegoleContrattuali(vieta_pm_consecutivo=True),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "w1 ha P il 30 giugno (situazione iniziale) e un turno M forzato "
+        "il 1 luglio: con il vincolo hard attivo, questa combinazione "
+        "deve essere infeasible"
+    )

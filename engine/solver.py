@@ -27,6 +27,11 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
        del riposo dopo la notte ma applicato alla serie generale invece
        che solo alle notti; tiene conto anche di stato_iniziale a
        cavallo di mese
+     - vieto HARD opzionale (default disattivato) di Pomeriggio->Mattino
+       su giorni consecutivi (regole_contrattuali.vieta_pm_consecutivo):
+       alternativa piu' rigida al termine soft
+       parametri_fairness.minimizza_pm_consecutivo, mutuamente esclusiva
+       con esso (l'interfaccia disattiva il soft quando l'hard e' attivo)
      (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
 
   2. VINCOLI ADMIN (hard, imposti dal coordinatore):
@@ -401,6 +406,34 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                     if giorno_riposo in giorni:
                         for f in fasce:
                             model.Add(x[(w, giorno_riposo, f)] == 0).OnlyEnforceIf(letterali_confine)
+
+    # Vincolo HARD opzionale: vieta del tutto un Mattino il giorno dopo un
+    # Pomeriggio (alternativa piu' rigida al termine soft
+    # minimizza_pm_consecutivo — le due opzioni sono mutuamente esclusive,
+    # l'interfaccia disabilita il soft quando questo e' attivo). A
+    # differenza del riposo dopo notte/serie, qui basta un vincolo diretto
+    # tra coppie di giorni adiacenti: non serve rilevare "fine serie",
+    # visto che la regola riguarda solo la coppia (P oggi, M domani), non
+    # una sequenza di lunghezza variabile.
+    if dati.regole_contrattuali.vieta_pm_consecutivo and "M" in fasce and "P" in fasce:
+        for w in lavoratori_ids:
+            for idx in range(len(giorni) - 1):
+                g, g_dopo = giorni[idx], giorni[idx + 1]
+                if g_dopo == g + 1:  # solo giorni davvero consecutivi (nessun salto)
+                    model.Add(x[(w, g, "P")] + x[(w, g_dopo, "M")] <= 1)
+
+            # Confine con il mese precedente: se l'ultimo giorno di
+            # situazione iniziale prima del periodo e' Pomeriggio, vieta
+            # il Mattino sul primo giorno del periodo.
+            ultimo_turno_precedente = next(
+                (si.fascia for si in dati.stato_iniziale
+                 if si.lavoratore_id == w and si.mese_precedente
+                 and data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
+                 == data_giorno_prima_periodo),
+                None,
+            )
+            if ultimo_turno_precedente == "P" and giorni:
+                model.Add(x[(w, giorni[0], "M")] == 0)
 
     # Massimo ore settimanali da contratto: vedi blocco dedicato PIU' SOTTO,
     # dopo i vincoli admin e le richieste soft — serve sapere quali giorni
