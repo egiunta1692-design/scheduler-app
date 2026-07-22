@@ -1023,7 +1023,7 @@ with tab_regole:
             ),
         )
         st.session_state.fairness["bilancia_proporzione_giornaliera"] = st.checkbox(
-            "Bilancia il surplus tra fasce, giorno per giorno",
+            "Bilancia il surplus tra fasce all'interno dello stesso giorno",
             value=st.session_state.fairness["bilancia_proporzione_giornaliera"],
             help=(
                 "'Spalma il surplus di copertura' (sopra) evita solo il caso "
@@ -1434,17 +1434,27 @@ def _costruisci_input() -> InputTurnazione:
 
 st.divider()
 st.session_state.setdefault("tempo_max_secondi", 30)
-st.session_state["tempo_max_secondi"] = st.slider(
+st.session_state["tempo_max_secondi"] = st.number_input(
     "Tempo massimo di calcolo (secondi)",
-    min_value=5, max_value=300, value=st.session_state["tempo_max_secondi"], step=5,
+    min_value=5, max_value=86400, value=st.session_state["tempo_max_secondi"], step=5,
     help=(
         "Se il motore non riesce a dimostrare che la soluzione trovata e' "
         "la migliore possibile entro questo tempo, la restituisce comunque "
         "(potrebbe non essere ottimale). Dopo aver generato, controlla "
         "l'indicazione di ottimalita': se non e' stata dimostrata, alzare "
-        "questo valore e rigenerare puo' migliorare il risultato."
+        "questo valore e rigenerare puo' migliorare il risultato.\n\n"
+        "Il tetto (86400s = 24 ore) non e' un limite tecnico reale — "
+        "OR-Tools non ha un massimo intrinseco — ma un limite pratico: "
+        "oltre non avrebbe senso per uno strumento interattivo. Il "
+        "contatore live durante il calcolo (sotto al pulsante 'Genera "
+        "turni') aiuta comunque a decidere quando interrompere e "
+        "riprovare con un tempo diverso, invece di aspettare al buio."
     ),
 )
+# Passato da st.slider a st.number_input: con un range cosi' ampio uno
+# slider trascinabile diventa scomodo da usare con precisione (17280
+# posizioni possibili con step=5), un campo numerico permette di
+# digitare direttamente il valore desiderato.
 
 if st.button("Genera turni", type="primary"):
     try:
