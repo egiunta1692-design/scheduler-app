@@ -1662,3 +1662,165 @@ def test_vieta_pm_consecutivo_blocca_confine_situazione_iniziale():
         "il 1 luglio: con il vincolo hard attivo, questa combinazione "
         "deve essere infeasible"
     )
+
+
+# ---------------------------------------------------------------------------
+# Vincolo HARD opzionale: scarto massimo tra lavoratori per fascia
+# (alternativa a bilancia_fasce soft), con normalizzazione proporzionata
+# alla capacita' contrattuale
+# ---------------------------------------------------------------------------
+
+def test_bilancia_fasce_hard_rispetta_scarto_configurato():
+    """Con 4 lavoratori a parita' di contratto e fabbisogno omogeneo,
+    verifica che lo scarto massimo configurato (2) sia rispettato sul
+    conteggio finale di ciascuna fascia."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_bilancia_fasce_hard",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=10),  # 1 giu 2026 = lunedi'
+        lavoratori=[
+            Lavoratore(id=f"w{i+1}", nome=f"Test {i+1}", ore_settimanali_min=0, ore_settimanali_max=48)
+            for i in range(4)
+        ],
+        fabbisogno=(
+            [Fabbisogno(giorno=g, fascia="M", minimo=2) for g in range(1, 11)]
+            + [Fabbisogno(giorno=g, fascia="P", minimo=2) for g in range(1, 11)]
+        ),
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(
+            bilancia_fasce_hard=True, scarto_massimo_M=2, scarto_massimo_P=2, scarto_massimo_N=2,
+        ),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")
+
+    for fascia in ("M", "P"):
+        conteggi = {}
+        for a in risultato.assegnazioni:
+            if a.fascia == fascia:
+                conteggi[a.lavoratore_id] = conteggi.get(a.lavoratore_id, 0) + 1
+        valori = [conteggi.get(f"w{i+1}", 0) for i in range(4)]
+        scarto = max(valori) - min(valori)
+        assert scarto <= 2, f"Scarto {fascia} = {scarto}, supera il massimo configurato di 2: {valori}"
+
+
+def test_bilancia_fasce_hard_proporzionato_part_time():
+    """Un lavoratore part-time (meta' delle ore massime settimanali) che
+    fa 2 notti deve essere considerato 'equivalente' a un full-time che
+    ne fa 4 — non una violazione dello scarto, nonostante il conteggio
+    grezzo differisca di 2. Verificato forzando esattamente questi
+    conteggi via vincoli admin, con uno scarto configurato molto
+    stretto (1) che fallirebbe se il confronto non fosse normalizzato
+    per la capacita' contrattuale.
+
+    Notti isolate (mai due di fila), spaziate di 3 giorni l'una
+    dall'altra per rispettare il riposo di 2 giorni dopo ogni notte
+    (default giorni_riposo_dopo_notte=2): giorno G di notte -> G+1,G+2
+    di riposo pieno obbligatorio -> prossima notte possibile solo G+3.
+    Ore massime volutamente generose (200h/100h) per non interferire
+    col vincolo di ore settimanali: qui l'obiettivo e' isolare solo il
+    comportamento di bilancia_fasce_hard."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_bilancia_fasce_hard_parttime",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=10),
+        lavoratori=[
+            Lavoratore(id="w_full", nome="Full Time", ore_settimanali_min=0, ore_settimanali_max=200),
+            Lavoratore(id="w_part", nome="Part Time", ore_settimanali_min=0, ore_settimanali_max=100),
+        ],
+        fabbisogno=[],
+        vincoli_admin=(
+            # w_full: 4 notti isolate, spaziate di 3 giorni (1,4,7,10)
+            [VincoloAdmin(id=f"af{g}", lavoratore_id="w_full", giorno=g, tipo="turno", fascia="N")
+             for g in (1, 4, 7, 10)]
+            # w_part: 2 notti isolate, stessa spaziatura
+            + [VincoloAdmin(id=f"ap{g}", lavoratore_id="w_part", giorno=g, tipo="turno", fascia="N")
+               for g in (1, 4)]
+        ),
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(bilancia_fasce_hard=True, scarto_massimo_N=1),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
+        "w_full (200h max) con 4 notti e w_part (100h max, meta') con 2 "
+        "notti dovrebbero risultare 'equivalenti' una volta normalizzati "
+        "per la capacita' contrattuale, nonostante lo scarto grezzo (4-2=2) "
+        "superi lo scarto configurato (1) se confrontato senza normalizzare"
+    )
+
+
+def test_bilancia_fasce_hard_esclude_mai_notti_dal_confronto():
+    """Un lavoratore con vincoli_personali.mai_notti=True deve essere
+    escluso dal confronto sulla fascia N: altrimenti il suo conteggio
+    fisso a 0 renderebbe lo scarto massimo violato non appena qualsiasi
+    altro lavoratore facesse anche una sola notte.
+
+    Notti forzate via admin (non tramite fabbisogno, per non introdurre
+    un problema di capacita' estraneo a quello che si vuole verificare:
+    con solo 2 lavoratori disponibili e copertura richiesta ogni giorno,
+    il riposo obbligatorio dopo notte potrebbe da solo rendere lo
+    scenario infeasible indipendentemente da bilancia_fasce_hard)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_bilancia_fasce_hard_mai_notti",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=13),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Mai notti", ore_settimanali_min=0, ore_settimanali_max=200,
+                       vincoli_personali=VincoliPersonali(mai_notti=True)),
+            Lavoratore(id="w2", nome="Normale A", ore_settimanali_min=0, ore_settimanali_max=200),
+            Lavoratore(id="w3", nome="Normale B", ore_settimanali_min=0, ore_settimanali_max=200),
+        ],
+        fabbisogno=[],
+        vincoli_admin=(
+            # w2: 3 notti isolate; w3: 5 notti isolate (scarto grezzo tra
+            # loro = 2, esattamente al limite configurato sotto)
+            [VincoloAdmin(id=f"a2_{g}", lavoratore_id="w2", giorno=g, tipo="turno", fascia="N")
+             for g in (1, 4, 7)]
+            + [VincoloAdmin(id=f"a3_{g}", lavoratore_id="w3", giorno=g, tipo="turno", fascia="N")
+               for g in (1, 4, 7, 10, 13)]
+        ),
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(bilancia_fasce_hard=True, scarto_massimo_N=2),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti"), (
+        "w1 (mai_notti=True, 0 notti per costruzione) deve essere escluso "
+        "dal confronto sulla fascia N: senza l'esclusione, il suo 0 fisso "
+        "renderebbe lo scarto sempre violato non appena w2/w3 facessero "
+        "anche una sola notte"
+    )
+
+    conteggio_w1 = sum(1 for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.fascia == "N")
+    assert conteggio_w1 == 0, "w1 ha mai_notti=True, non dovrebbe avere nessuna notte assegnata"
+
+
+# ---------------------------------------------------------------------------
+# bilancia_fasce (soft): stessa normalizzazione proporzionata della
+# versione hard, applicata anche qui
+# ---------------------------------------------------------------------------
+
+def test_bilancia_fasce_soft_normalizzato_con_part_time_non_va_in_errore():
+    """Verifica che il termine soft bilancia_fasce, con la normalizzazione
+    proporzionata per la capacita' contrattuale, funzioni correttamente
+    (nessun errore di dominio nelle variabili CP-SAT) anche con
+    lavoratori a capacita' molto diversa tra loro (full-time vs
+    part-time) — lo scenario che aveva causato i due bug di bound
+    corretti durante lo sviluppo."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_bilancia_fasce_soft_parttime",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=10),
+        lavoratori=[
+            Lavoratore(id="w_full", nome="Full Time", ore_settimanali_min=0, ore_settimanali_max=48),
+            Lavoratore(id="w_part", nome="Part Time", ore_settimanali_min=0, ore_settimanali_max=12),
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 11)],
+        regole_contrattuali=RegoleContrattuali(),
+        parametri_fairness=ParametriFairness(bilancia_fasce=True),  # soft, default
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato in ("feasible", "feasible_con_declassamenti")

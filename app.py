@@ -491,6 +491,10 @@ def _init_state():
 
     st.session_state.fairness = {
         "bilancia_fasce": demo.parametri_fairness.bilancia_fasce,
+        "bilancia_fasce_hard": demo.parametri_fairness.bilancia_fasce_hard,
+        "scarto_massimo_M": demo.parametri_fairness.scarto_massimo_M,
+        "scarto_massimo_P": demo.parametri_fairness.scarto_massimo_P,
+        "scarto_massimo_N": demo.parametri_fairness.scarto_massimo_N,
         "bilancia_giorni_settimana": demo.parametri_fairness.bilancia_giorni_settimana,
         "bilancia_ore_settimanali": demo.parametri_fairness.bilancia_ore_settimanali,
         "bilancia_copertura_giornaliera": demo.parametri_fairness.bilancia_copertura_giornaliera,
@@ -769,9 +773,55 @@ with tab_regole:
 
     with col2:
         st.subheader("Fairness (equilibrio tra lavoratori e giorni)")
+        st.session_state.fairness["bilancia_fasce_hard"] = st.checkbox(
+            "Scarto massimo tra lavoratori per fascia (vincolo rigido)",
+            value=st.session_state.fairness["bilancia_fasce_hard"],
+            help=(
+                "Alternativa piu' rigida a 'Bilancia il numero di turni per "
+                "fascia' (sotto): invece di scoraggiare lo squilibrio "
+                "nell'obiettivo, impone che la differenza tra il "
+                "lavoratore col conteggio piu' alto e quello col conteggio "
+                "piu' basso (per M, P e N separatamente) non superi la "
+                "soglia impostata. Le due opzioni sono mutuamente "
+                "esclusive — attivando questa, quella soft viene "
+                "disattivata automaticamente. I conteggi sono normalizzati "
+                "per la capacita' contrattuale (ore settimanali massime): "
+                "un part-time a meta' ore che fa 3 notti conta come "
+                "equivalente a 6 di un full-time, non viene penalizzato "
+                "per avere naturalmente meno turni. I lavoratori con "
+                "'mai notti' sono esclusi dal confronto sulla fascia N. "
+                "Puo' ridurre la flessibilita' del motore e, con pochi "
+                "lavoratori disponibili, rendere infeasible cio' che con "
+                "solo la penalizzazione soft sarebbe stato risolvibile."
+            ),
+        )
+        if st.session_state.fairness["bilancia_fasce_hard"]:
+            st.session_state.fairness["bilancia_fasce"] = False
+            col_sM, col_sP, col_sN = st.columns(3)
+            with col_sM:
+                st.session_state.fairness["scarto_massimo_M"] = st.number_input(
+                    "Scarto massimo M", value=st.session_state.fairness["scarto_massimo_M"],
+                    min_value=1, max_value=20,
+                )
+            with col_sP:
+                st.session_state.fairness["scarto_massimo_P"] = st.number_input(
+                    "Scarto massimo P", value=st.session_state.fairness["scarto_massimo_P"],
+                    min_value=1, max_value=20,
+                )
+            with col_sN:
+                st.session_state.fairness["scarto_massimo_N"] = st.number_input(
+                    "Scarto massimo N", value=st.session_state.fairness["scarto_massimo_N"],
+                    min_value=1, max_value=20,
+                )
         st.session_state.fairness["bilancia_fasce"] = st.checkbox(
             "Bilancia il numero di turni per fascia tra i lavoratori",
             value=st.session_state.fairness["bilancia_fasce"],
+            disabled=st.session_state.fairness["bilancia_fasce_hard"],
+            help=(
+                "Disattivato: e' attivo il vincolo rigido equivalente "
+                "sopra (le due opzioni sono mutuamente esclusive)."
+                if st.session_state.fairness["bilancia_fasce_hard"] else None
+            ),
         )
         st.session_state.fairness["bilancia_giorni_settimana"] = st.checkbox(
             "Bilancia il totale di giorni lavorati tra i lavoratori",
@@ -1196,6 +1246,10 @@ def _costruisci_input() -> InputTurnazione:
 
     fairness = ParametriFairness(
         bilancia_fasce=st.session_state.fairness["bilancia_fasce"],
+        bilancia_fasce_hard=st.session_state.fairness["bilancia_fasce_hard"],
+        scarto_massimo_M=int(st.session_state.fairness["scarto_massimo_M"]),
+        scarto_massimo_P=int(st.session_state.fairness["scarto_massimo_P"]),
+        scarto_massimo_N=int(st.session_state.fairness["scarto_massimo_N"]),
         bilancia_giorni_settimana=st.session_state.fairness["bilancia_giorni_settimana"],
         bilancia_ore_settimanali=st.session_state.fairness["bilancia_ore_settimanali"],
         bilancia_copertura_giornaliera=st.session_state.fairness["bilancia_copertura_giornaliera"],

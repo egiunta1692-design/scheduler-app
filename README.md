@@ -284,6 +284,25 @@ riposo, non solo M/P.
   penalizzazione soft sarebbe stato risolvibile. Tiene conto anche di
   `stato_iniziale`: se l'ultimo turno prima del periodo e' Pomeriggio,
   vieta il Mattino sul primo giorno del periodo
+- **scarto massimo rigido opzionale tra lavoratori per fascia**
+  (default **disattivato**, `parametri_fairness.bilancia_fasce_hard` +
+  `scarto_massimo_M`/`scarto_massimo_P`/`scarto_massimo_N`, default
+  **5** ciascuno): alternativa piu' restrittiva al termine di fairness
+  "Bilancia il numero di turni per fascia" (Livello 4 sotto) — invece di
+  scoraggiare lo squilibrio nell'obiettivo, impone che la differenza tra
+  il lavoratore col conteggio piu' alto e quello col conteggio piu'
+  basso (per fascia, sull'intero periodo) non superi la soglia.
+  **Mutuamente esclusivo** col termine soft corrispondente (stessa
+  disattivazione automatica di sopra). **Normalizzato per la capacita'
+  contrattuale** (`ore_settimanali_max`, stessa proxy gia' usata dal
+  termine soft "Bilancia le ore lavorate"): un part-time con meta' delle
+  ore massime che fa 3 notti conta come equivalente a 6 di un full-time
+  — non e' uno squilibrio da correggere, e' la conseguenza naturale del
+  contratto. Senza questa normalizzazione, un part-time verrebbe
+  penalizzato ingiustamente per avere naturalmente meno turni di chi ha
+  piu' ore disponibili. I lavoratori con `vincoli_personali.
+  mai_notti=True` sono esclusi dal confronto sulla fascia N (fissi a 0
+  per contratto: includerli renderebbe il vincolo violato quasi sempre)
 - tutti questi vincoli tengono conto di `stato_iniziale` per i casi a
   cavallo con il mese precedente
 
@@ -421,7 +440,14 @@ conseguenza i turni reali assegnabili quella settimana.
   comparabile agli altri termini. Scelta al posto del confronto tra ogni
   coppia di lavoratori (sarebbe O(n²): 190 coppie per fascia con
   20 lavoratori) perche' confrontare ciascuno con la media e' O(n) — 20
-  confronti per fascia — con lo stesso effetto pratico
+  confronti per fascia — con lo stesso effetto pratico. **Normalizzato
+  per la capacita' contrattuale** (stessa logica della versione hard
+  gemella `bilancia_fasce_hard` — vedi sopra): un part-time con meta'
+  delle ore massime non viene "spinto" verso lo stesso conteggio grezzo
+  di un full-time, ne' incluso nel confronto sulla fascia N se ha
+  `mai_notti=True`. Nel caso comune (tutti i lavoratori con la stessa
+  `ore_settimanali_max`) il comportamento e' matematicamente identico a
+  prima — nessuna regressione, verificato numericamente
 - minimizza inoltre lo scarto (max - min) del **tasso di utilizzo della
   capacita' oraria residua, settimana per settimana** (non solo sul
   totale del periodo): bilanciare solo il totale non basta, una singola

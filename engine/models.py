@@ -125,6 +125,24 @@ class ParametriFairness:
     peso_minimizza_pm_consecutivo: int = 2
     peso_bilancia_proporzione_giornaliera: int = 6
 
+    # Vincolo HARD (non soft) alternativo a bilancia_fasce: invece di
+    # pesare lo squilibrio nell'obiettivo, impone uno scarto massimo
+    # (per fascia) tra il lavoratore col conteggio piu' alto e quello col
+    # conteggio piu' basso — MUTUAMENTE ESCLUSIVO con bilancia_fasce
+    # (l'interfaccia disattiva il soft quando l'hard e' attivo). Default
+    # disattivato: e' piu' restrittivo del soft esistente e puo' ridurre
+    # la flessibilita' del motore. I conteggi vengono normalizzati per la
+    # capacita' contrattuale (ore_settimanali_max) prima del confronto,
+    # cosi' un part-time con meta' delle ore non viene penalizzato per
+    # avere naturalmente meno turni — vedi solver.py per i dettagli. I
+    # lavoratori con vincoli_personali.mai_notti=True sono esclusi dal
+    # confronto sulla fascia N (sono fissi a 0 per contratto, includerli
+    # renderebbe il vincolo quasi sempre violato).
+    bilancia_fasce_hard: bool = False
+    scarto_massimo_M: int = 5
+    scarto_massimo_P: int = 5
+    scarto_massimo_N: int = 5
+
 
 @dataclass
 class StatoIniziale:

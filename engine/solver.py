@@ -32,6 +32,16 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
        alternativa piu' rigida al termine soft
        parametri_fairness.minimizza_pm_consecutivo, mutuamente esclusiva
        con esso (l'interfaccia disattiva il soft quando l'hard e' attivo)
+     - scarto massimo HARD opzionale (default disattivato) tra
+       lavoratori per fascia (parametri_fairness.bilancia_fasce_hard +
+       scarto_massimo_M/P/N, default 5 ciascuno): alternativa piu' rigida
+       al termine soft bilancia_fasce, mutuamente esclusiva con esso.
+       ENTRAMBE le versioni (hard e soft) normalizzano i conteggi per la
+       capacita' contrattuale (ore_settimanali_max) prima del confronto,
+       cosi' un part-time con meta' delle ore non viene penalizzato per
+       avere naturalmente meno turni. I lavoratori con
+       vincoli_personali.mai_notti=True sono esclusi dal confronto sulla
+       fascia N, in entrambe le versioni
      (tutti tengono conto di stato_iniziale per i casi a cavallo di mese)
 
   2. VINCOLI ADMIN (hard, imposti dal coordinatore):
@@ -435,6 +445,75 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             if ultimo_turno_precedente == "P" and giorni:
                 model.Add(x[(w, giorni[0], "M")] == 0)
 
+    # Vincolo HARD opzionale: scarto massimo (per fascia) tra il
+    # lavoratore col conteggio piu' alto e quello col conteggio piu'
+    # basso, sull'INTERO periodo — alternativa piu' rigida al termine
+    # soft parametri_fairness.bilancia_fasce (mutuamente esclusivi,
+    # l'interfaccia disattiva il soft quando questo e' attivo).
+    #
+    # NORMALIZZAZIONE PROPORZIONATA: i conteggi grezzi NON vengono
+    # confrontati direttamente. Un lavoratore part-time con meta' delle
+    # ore contrattuali (ore_settimanali_max) fa naturalmente meno turni
+    # di un full-time — non e' uno squilibrio da correggere, e' la
+    # conseguenza attesa del contratto. Confrontare i conteggi grezzi con
+    # uno scarto assoluto uguale per tutti penalizzerebbe ingiustamente
+    # chi ha un contratto piu' piccolo. Invece, ogni conteggio viene
+    # riscalato rispetto al lavoratore con la capacita' piu' alta nel
+    # gruppo considerato (stessa proxy di capacita' — ore_settimanali_max
+    # — gia' usata dal termine soft bilancia_ore_settimanali): un
+    # part-time a meta' ore che fa 3 notti risulta "equivalente" a 6
+    # notti di un full-time. Lo scarto configurato si applica ai
+    # conteggi COSI' NORMALIZZATI.
+    if dati.parametri_fairness.bilancia_fasce_hard:
+        SCALE_SCARTO = 1000
+        for f in ("M", "P", "N"):
+            if f not in fasce:
+                continue
+            scarto_max = getattr(dati.parametri_fairness, f"scarto_massimo_{f}")
+
+            # Per la fascia N, esclude chi ha mai_notti=True (fissi a 0
+            # per contratto: includerli renderebbe il vincolo violato
+            # quasi sempre, dato che chiunque altro faccia anche solo una
+            # notte supererebbe lo scarto). Esclude anche chi ha
+            # ore_settimanali_max=0 (capacita' nulla, non normalizzabile:
+            # caso degenere, comunque forzato a 0 turni dal vincolo ore).
+            lavoratori_considerati = []
+            for w in lavoratori_ids:
+                lavoratore = next(l for l in dati.lavoratori if l.id == w)
+                if f == "N" and lavoratore.vincoli_personali.mai_notti:
+                    continue
+                if lavoratore.ore_settimanali_max <= 0:
+                    continue
+                lavoratori_considerati.append(w)
+
+            if len(lavoratori_considerati) < 2:
+                continue  # niente da confrontare con 0 o 1 lavoratore
+
+            capacita_riferimento_minuti = max(
+                next(l for l in dati.lavoratori if l.id == w).ore_settimanali_max * 60
+                for w in lavoratori_considerati
+            )
+
+            conteggi_normalizzati = []
+            limiti_superiori = []
+            for w in lavoratori_considerati:
+                lavoratore = next(l for l in dati.lavoratori if l.id == w)
+                capacita_w_minuti = lavoratore.ore_settimanali_max * 60
+                fattore = (SCALE_SCARTO * capacita_riferimento_minuti) // capacita_w_minuti
+                conteggio_w = sum(x[(w, g, f)] for g in giorni)
+                limite_superiore = len(giorni) * fattore
+                conteggio_norm = model.NewIntVar(0, limite_superiore, f"conteggio_norm_{f}_{w}")
+                model.Add(conteggio_norm == conteggio_w * fattore)
+                conteggi_normalizzati.append(conteggio_norm)
+                limiti_superiori.append(limite_superiore)
+
+            limite_superiore_globale = max(limiti_superiori)
+            massimo_f = model.NewIntVar(0, limite_superiore_globale, f"massimo_{f}")
+            minimo_f = model.NewIntVar(0, limite_superiore_globale, f"minimo_{f}")
+            model.AddMaxEquality(massimo_f, conteggi_normalizzati)
+            model.AddMinEquality(minimo_f, conteggi_normalizzati)
+            model.Add(massimo_f - minimo_f <= scarto_max * SCALE_SCARTO)
+
     # Massimo ore settimanali da contratto: vedi blocco dedicato PIU' SOTTO,
     # dopo i vincoli admin e le richieste soft — serve sapere quali giorni
     # sono ferie (forzate o concesse tramite richiesta soft) per contarne
@@ -673,23 +752,86 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
         # (O(n^2): 190 coppie per fascia con 20 lavoratori) a favore di
         # "confronta ognuno con la media" (O(n): 20 confronti per fascia),
         # molto piu' efficiente e con lo stesso effetto pratico.
+        #
+        # NORMALIZZAZIONE PROPORZIONATA (stessa logica della versione
+        # HARD sopra, bilancia_fasce_hard — vedi i commenti li' per il
+        # ragionamento completo): i conteggi grezzi non sono confrontati
+        # direttamente, altrimenti un part-time con meta' delle ore
+        # contrattuali verrebbe "spinto" verso lo stesso conteggio di un
+        # full-time, anche se soft. Ogni conteggio viene riscalato
+        # rispetto al lavoratore con la capacita' (ore_settimanali_max)
+        # piu' alta nel gruppo considerato. Per la fascia N, i lavoratori
+        # con vincoli_personali.mai_notti=True sono esclusi dal confronto
+        # (fissi a 0 per contratto: il loro scarto dalla media non
+        # potrebbe mai essere corretto, e la loro presenza abbasserebbe
+        # artificialmente la media, generando una pressione ingiustificata
+        # sugli altri).
+        SCALE_BILANCIA_FASCE = 1000
         for f in fasce:
-            conteggi = []
+            lavoratori_considerati = []
             for w in lavoratori_ids:
+                lavoratore = next(l for l in dati.lavoratori if l.id == w)
+                if f == "N" and lavoratore.vincoli_personali.mai_notti:
+                    continue
+                if lavoratore.ore_settimanali_max <= 0:
+                    continue
+                lavoratori_considerati.append(w)
+
+            if len(lavoratori_considerati) < 2:
+                continue  # niente da bilanciare con 0 o 1 lavoratore
+
+            capacita_riferimento_minuti = max(
+                next(l for l in dati.lavoratori if l.id == w).ore_settimanali_max * 60
+                for w in lavoratori_considerati
+            )
+
+            conteggi_normalizzati = []
+            limiti_superiori = []
+            for w in lavoratori_considerati:
+                lavoratore = next(l for l in dati.lavoratori if l.id == w)
+                capacita_w_minuti = lavoratore.ore_settimanali_max * 60
+                fattore = (SCALE_BILANCIA_FASCE * capacita_riferimento_minuti) // capacita_w_minuti
                 c = model.NewIntVar(0, n_giorni, f"count_{w}_{f}")
                 model.Add(c == sum(x[(w, g, f)] for g in giorni))
-                conteggi.append(c)
+                limite_superiore = n_giorni * fattore
+                c_norm = model.NewIntVar(0, limite_superiore, f"count_norm_{w}_{f}")
+                model.Add(c_norm == c * fattore)
+                conteggi_normalizzati.append(c_norm)
+                limiti_superiori.append(limite_superiore)
 
-            totale_f = model.NewIntVar(0, n_lavoratori * n_giorni, f"totale_conteggi_{f}")
-            model.Add(totale_f == sum(conteggi))
-            media_f = model.NewIntVar(0, n_giorni, f"media_conteggi_{f}")
-            model.AddDivisionEquality(media_f, totale_f, n_lavoratori)
+            n_considerati = len(lavoratori_considerati)
+            limite_superiore_gruppo = max(limiti_superiori)
+            limite_superiore_totale = n_considerati * limite_superiore_gruppo
+            totale_f = model.NewIntVar(0, limite_superiore_totale, f"totale_conteggi_{f}")
+            model.Add(totale_f == sum(conteggi_normalizzati))
+            media_f = model.NewIntVar(0, limite_superiore_gruppo, f"media_conteggi_{f}")
+            model.AddDivisionEquality(media_f, totale_f, n_considerati)
 
-            for w, c in zip(lavoratori_ids, conteggi):
-                scarto_media = model.NewIntVar(0, n_giorni, f"scarto_media_{w}_{f}")
-                model.Add(scarto_media >= c - media_f)
-                model.Add(scarto_media >= media_f - c)
-                termini_obiettivo.append(dati.parametri_fairness.peso_bilancia_fasce * scarto_media)
+            for w, c_norm in zip(lavoratori_considerati, conteggi_normalizzati):
+                # NOTA sul bound: uso limite_superiore_gruppo (il massimo
+                # dell'intero gruppo), non il limite del singolo
+                # lavoratore — lo scarto dalla media puo' avvicinarsi al
+                # range completo del gruppo se le capacita' contrattuali
+                # sono molto diverse tra loro (es. c_norm=0 per un
+                # lavoratore e media_f vicina al massimo del gruppo).
+                scarto_media = model.NewIntVar(0, limite_superiore_gruppo, f"scarto_media_{w}_{f}")
+                model.Add(scarto_media >= c_norm - media_f)
+                model.Add(scarto_media >= media_f - c_norm)
+                # Diviso per SCALE_BILANCIA_FASCE (con AddDivisionEquality,
+                # coerente con come il resto del motore gestisce le
+                # divisioni intere) per riportare il peso nello stesso
+                # ordine di grandezza di prima della normalizzazione — la
+                # normalizzazione non deve alterare l'intensita' relativa
+                # di questo termine rispetto agli altri nell'obiettivo.
+                # Stesso motivo del bound sopra: uso limite_superiore_gruppo,
+                # non il limite del singolo lavoratore.
+                scarto_media_scala_originale = model.NewIntVar(
+                    0, limite_superiore_gruppo // SCALE_BILANCIA_FASCE, f"scarto_media_orig_{w}_{f}"
+                )
+                model.AddDivisionEquality(scarto_media_scala_originale, scarto_media, SCALE_BILANCIA_FASCE)
+                termini_obiettivo.append(
+                    dati.parametri_fairness.peso_bilancia_fasce * scarto_media_scala_originale
+                )
 
     if dati.parametri_fairness.bilancia_giorni_settimana:
         # Stessa ristrutturazione di bilancia_fasce sopra, stesso motivo:
