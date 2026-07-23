@@ -1743,9 +1743,11 @@ if risultato is not None:
             "virtuali di ferie (stesso criterio del motore per il vincolo "
             "di ore settimanali), incluse situazione iniziale ed eventuale "
             "sconfinamento nel mese successivo\n"
-            "- **Ore mese**: solo le ore effettivamente lavorate nel mese "
-            "di riferimento (non include le ore virtuali di ferie, a "
-            "differenza di \"Ore sett.N\")"
+            "- **Ore mese**: ore effettivamente lavorate nel mese di "
+            "riferimento PIU' le ore virtuali di ferie dello stesso mese "
+            "(stesso criterio di \"Ore sett.N\" sopra, ma senza situazione "
+            "iniziale ne' sconfinamento nel mese successivo — solo il "
+            "mese di riferimento)"
         )
 
         lavoratori_ordinati_insights = st.session_state.df_lavoratori["id"].tolist()
@@ -1800,6 +1802,13 @@ if risultato is not None:
                     data = data_da_indice_periodo(anno_ref, mese_ref, r.giorno)
                     if data.month == mese_ref and data.year == anno_ref:
                         conteggi_ferie[r.lavoratore_id] += 1
+
+        # "Ore mese" include ANCHE le ore virtuali di ferie del mese di
+        # riferimento (non solo le ore effettivamente lavorate): sommiamo
+        # qui il conteggio "Ferie" gia' calcolato sopra, moltiplicato per
+        # la durata giornaliera di ferie configurata.
+        for lavoratore_id, giorni_ferie in conteggi_ferie.items():
+            minuti_mese_per_lavoratore[lavoratore_id] += giorni_ferie * minuti_ferie_giornaliere_effettive
 
         # Ore per settimana ISO (lun-dom), per lavoratore: qui invece
         # includiamo DI PROPOSITO sia le assegnazioni del periodo esteso

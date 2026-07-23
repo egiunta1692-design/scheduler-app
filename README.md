@@ -202,9 +202,10 @@ Premi "Genera turni" per vedere:
   effettivamente lavorate **piu' le ore virtuali di ferie** (stesso
   criterio usato dal motore per il vincolo di ore settimanali), oltre
   alla situazione iniziale **della stessa settimana ISO del periodo** e
-  agli eventuali giorni nel mese successivo. "Ore mese" conta invece
-  solo le ore effettivamente lavorate nel mese di riferimento (non
-  include le ore virtuali di ferie, a differenza di "Ore sett.N")
+  agli eventuali giorni nel mese successivo. "Ore mese" usa lo stesso
+  criterio (ore lavorate + ore virtuali di ferie) ma **solo sul mese di
+  riferimento**, senza situazione iniziale ne' sconfinamento nel mese
+  successivo
 
   **Nota su un bug corretto**: la griglia mostra sempre almeno
   `GIORNI_STATO_INIZIALE_MINIMO` giorni di situazione iniziale per
