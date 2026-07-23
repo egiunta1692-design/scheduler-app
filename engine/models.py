@@ -98,20 +98,26 @@ class RegoleContrattuali:
     # la sequenza nell'obiettivo ma non la vieta) — le due opzioni sono
     # pensate come MUTUAMENTE ESCLUSIVE (l'interfaccia disabilita il
     # termine soft quando questo e' attivo, dato che minimizzare qualcosa
-    # di gia' vietato del tutto non avrebbe senso). Default disattivato,
-    # perche' e' un vincolo piu' restrittivo del default esistente e puo'
-    # ridurre la flessibilita' del motore (rischio di infeasibility in
-    # scenari con pochi lavoratori disponibili).
-    vieta_pm_consecutivo: bool = False
+    # di gia' vietato del tutto non avrebbe senso). Default ATTIVO: puo'
+    # ridurre la flessibilita' del motore e, in scenari con pochi
+    # lavoratori disponibili, causare infeasibility dove la sola
+    # penalizzazione soft sarebbe bastata — se succede, disattivalo e
+    # riattiva il soft equivalente.
+    vieta_pm_consecutivo: bool = True
 
 
 @dataclass
 class ParametriFairness:
-    bilancia_fasce: bool = True
+    # bilancia_fasce, bilancia_copertura_giornaliera e
+    # minimizza_pm_consecutivo (RegoleContrattuali) partono disattivati
+    # di default: le rispettive alternative HARD (bilancia_fasce_hard,
+    # bilancia_copertura_giornaliera_hard, vieta_pm_consecutivo) sono
+    # ora quelle attive di default, mutuamente esclusive con queste.
+    bilancia_fasce: bool = False
     bilancia_giorni_settimana: bool = True
-    bilancia_copertura_giornaliera: bool = True
+    bilancia_copertura_giornaliera: bool = False
     bilancia_ore_settimanali: bool = True
-    minimizza_pm_consecutivo: bool = True
+    minimizza_pm_consecutivo: bool = False
     bilancia_proporzione_giornaliera: bool = True
     # Pesi individuali per ciascun vincolo soft (default = preset
     # "Equilibrio reparto", vedi PRESET_FAIRNESS in app.py). Un peso
@@ -130,15 +136,16 @@ class ParametriFairness:
     # (per fascia) tra il lavoratore col conteggio piu' alto e quello col
     # conteggio piu' basso — MUTUAMENTE ESCLUSIVO con bilancia_fasce
     # (l'interfaccia disattiva il soft quando l'hard e' attivo). Default
-    # disattivato: e' piu' restrittivo del soft esistente e puo' ridurre
-    # la flessibilita' del motore. I conteggi vengono normalizzati per la
-    # capacita' contrattuale (ore_settimanali_max) prima del confronto,
-    # cosi' un part-time con meta' delle ore non viene penalizzato per
-    # avere naturalmente meno turni — vedi solver.py per i dettagli. I
-    # lavoratori con vincoli_personali.mai_notti=True sono esclusi dal
-    # confronto sulla fascia N (sono fissi a 0 per contratto, includerli
-    # renderebbe il vincolo quasi sempre violato).
-    bilancia_fasce_hard: bool = False
+    # ATTIVO: puo' ridurre la flessibilita' del motore — se causa
+    # infeasibility, disattivalo e riattiva il soft equivalente. I
+    # conteggi vengono normalizzati per la capacita' contrattuale
+    # (ore_settimanali_max) prima del confronto, cosi' un part-time con
+    # meta' delle ore non viene penalizzato per avere naturalmente meno
+    # turni — vedi solver.py per i dettagli. I lavoratori con
+    # vincoli_personali.mai_notti=True sono esclusi dal confronto sulla
+    # fascia N (sono fissi a 0 per contratto, includerli renderebbe il
+    # vincolo quasi sempre violato).
+    bilancia_fasce_hard: bool = True
     scarto_massimo_M: int = 4
     scarto_massimo_P: int = 4
     scarto_massimo_N: int = 2
@@ -156,9 +163,10 @@ class ParametriFairness:
     # non puo' variare di piu' di 50 punti percentuali tra il giorno
     # peggiore e quello migliore. Giorni/fasce con fabbisogno 0 sono
     # esclusi dal confronto (come nel soft: il tasso surplus/0 non e'
-    # definito). Default disattivato: e' piu' restrittivo del soft
-    # esistente e puo' ridurre la flessibilita' del motore.
-    bilancia_copertura_giornaliera_hard: bool = False
+    # definito). Default ATTIVO: puo' ridurre la flessibilita' del
+    # motore — se causa infeasibility, disattivalo e riattiva il soft
+    # equivalente.
+    bilancia_copertura_giornaliera_hard: bool = True
     scarto_massimo_copertura_M: int = 50
     scarto_massimo_copertura_P: int = 50
     scarto_massimo_copertura_N: int = 50

@@ -1003,6 +1003,22 @@ with tab_regole:
                 )
             ),
         )
+        st.session_state.fairness["bilancia_proporzione_giornaliera"] = st.checkbox(
+            "Bilancia il surplus tra fasce all'interno dello stesso giorno",
+            value=st.session_state.fairness["bilancia_proporzione_giornaliera"],
+            help=(
+                "'Spalma il surplus di copertura' (sopra) evita solo il caso "
+                "peggiore in assoluto su tutto il mese: puo' lasciare che "
+                "molti singoli giorni abbiano comunque M/P/N sbilanciati tra "
+                "loro (es. un giorno con 8 Mattina e 5 Pomeriggio, pur avendo "
+                "lo stesso fabbisogno) senza che questo emerga come 'il "
+                "peggiore'. Questa opzione confronta invece le fasce "
+                "PRESENTI OGNI SINGOLO GIORNO (proporzionalmente al loro "
+                "fabbisogno) e somma lo scarto su tutti i giorni, non solo "
+                "il caso peggiore — cosi' ogni giorno deve essere "
+                "ragionevole, non solo il mese nel complesso."
+            ),
+        )
         st.session_state.fairness["vieta_pm_consecutivo"] = st.checkbox(
             "Vieta del tutto Pomeriggio -> Mattino su giorni consecutivi (vincolo rigido)",
             value=st.session_state.fairness["vieta_pm_consecutivo"],
@@ -1036,22 +1052,6 @@ with tab_regole:
                     "sopra (le due opzioni sono mutuamente esclusive)."
                     if st.session_state.fairness["vieta_pm_consecutivo"] else ""
                 )
-            ),
-        )
-        st.session_state.fairness["bilancia_proporzione_giornaliera"] = st.checkbox(
-            "Bilancia il surplus tra fasce all'interno dello stesso giorno",
-            value=st.session_state.fairness["bilancia_proporzione_giornaliera"],
-            help=(
-                "'Spalma il surplus di copertura' (sopra) evita solo il caso "
-                "peggiore in assoluto su tutto il mese: puo' lasciare che "
-                "molti singoli giorni abbiano comunque M/P/N sbilanciati tra "
-                "loro (es. un giorno con 8 Mattina e 5 Pomeriggio, pur avendo "
-                "lo stesso fabbisogno) senza che questo emerga come 'il "
-                "peggiore'. Questa opzione confronta invece le fasce "
-                "PRESENTI OGNI SINGOLO GIORNO (proporzionalmente al loro "
-                "fabbisogno) e somma lo scarto su tutti i giorni, non solo "
-                "il caso peggiore — cosi' ogni giorno deve essere "
-                "ragionevole, non solo il mese nel complesso."
             ),
         )
 
