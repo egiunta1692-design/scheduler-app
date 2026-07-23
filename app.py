@@ -591,7 +591,23 @@ def _sincronizza_griglie():
     # diversi) ricevono il pattern di default; quelle gia' esistenti
     # (modificate o deliberatamente vuote) restano come l'utente le ha
     # lasciate.
-    df_riallineato = st.session_state.df_calendario.reindex(index=lavoratori_ids, columns=colonne_tutte)
+    #
+    # BUG CORRETTO: reindex() su colonne GENUINAMENTE NUOVE (es. cambio
+    # mese: numero di giorni sconfinati diverso, quindi colonne diverse
+    # da quelle gia' presenti) le crea con dtype float64 (essendo tutte
+    # NaN), incompatibile con le stringhe della griglia (che usa dtype
+    # stringa nativo di pandas). Il tentativo di scriverci un valore
+    # come "AM" nel loop sotto falliva con
+    # "TypeError: Invalid value 'AM' for dtype 'float64'" — riprodotto e
+    # verificato con pandas 3.0.2. astype(object) subito dopo il reindex
+    # rende tutte le colonne compatibili con qualunque valore (stringhe
+    # comprese), preservando comunque i NaN per il controllo pd.isna()
+    # sotto.
+    df_riallineato = (
+        st.session_state.df_calendario
+        .reindex(index=lavoratori_ids, columns=colonne_tutte)
+        .astype(object)
+    )
 
     giorni_si, _, _ = _giorni_stato_iniziale()
     pattern_default = _genera_situazione_iniziale_default(lavoratori_ids, giorni_si)

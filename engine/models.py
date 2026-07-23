@@ -139,9 +139,9 @@ class ParametriFairness:
     # confronto sulla fascia N (sono fissi a 0 per contratto, includerli
     # renderebbe il vincolo quasi sempre violato).
     bilancia_fasce_hard: bool = False
-    scarto_massimo_M: int = 5
-    scarto_massimo_P: int = 5
-    scarto_massimo_N: int = 5
+    scarto_massimo_M: int = 4
+    scarto_massimo_P: int = 4
+    scarto_massimo_N: int = 2
 
     # Vincolo HARD (non soft) alternativo a bilancia_copertura_giornaliera:
     # invece di pesare nell'obiettivo lo squilibrio del TASSO di surplus
