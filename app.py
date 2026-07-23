@@ -1538,6 +1538,7 @@ if st.button("Genera turni", type="primary"):
 
         st.session_state.risultato = risultato_container["risultato"]
         st.session_state.ultimo_input = dati
+        st.session_state.tempo_max_usato = tempo_max
         st.success(f"Calcolo completato in {trascorso_totale:.1f}s")
     except Exception as e:
         st.error(f"Errore nella costruzione dei dati o nel calcolo: {e}")
@@ -1561,14 +1562,27 @@ if risultato is not None:
             "minimo o i vincoli forzati."
         )
     elif risultato.stato == "tempo_scaduto":
+        tempo_max_usato = st.session_state.get("tempo_max_usato")
+        tempo_max_attuale = st.session_state.get("tempo_max_secondi")
+        if tempo_max_usato is not None:
+            testo_limite = f"il limite configurato era **{tempo_max_usato}s**"
+            if tempo_max_attuale is not None and tempo_max_attuale != tempo_max_usato:
+                testo_limite += (
+                    f" — nel frattempo hai cambiato il campo qui sopra a "
+                    f"{tempo_max_attuale}s, ma questo risultato riflette ancora "
+                    f"la generazione fatta con {tempo_max_usato}s: rigenera per "
+                    f"usare il nuovo valore"
+                )
+        else:
+            testo_limite = "il limite configurato non e' disponibile per questo risultato"
         st.warning(
-            f"Il tempo massimo di calcolo ({risultato.tempo_impiegato_secondi:.0f}s) "
-            "e' scaduto **prima** che il motore trovasse una soluzione o "
-            "dimostrasse che i vincoli sono incompatibili. Questo **non** "
-            "significa che il problema sia irrisolvibile — con problemi "
-            "complessi (tanti lavoratori, vincoli stretti) il motore "
-            "potrebbe semplicemente aver bisogno di piu' tempo. Prova ad "
-            "alzare il 'Tempo massimo di calcolo' sopra e rigenerare."
+            f"Il motore ha impiegato **{risultato.tempo_impiegato_secondi:.0f}s** "
+            f"({testo_limite}) senza trovare una soluzione ne' dimostrare che i "
+            "vincoli sono incompatibili. Questo **non** significa che il "
+            "problema sia irrisolvibile — con problemi complessi (tanti "
+            "lavoratori, vincoli stretti) il motore potrebbe semplicemente "
+            "aver bisogno di piu' tempo. Prova ad alzare il 'Tempo massimo "
+            "di calcolo' sopra e rigenerare."
         )
     else:
         if risultato.stato == "feasible_con_declassamenti":
