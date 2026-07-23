@@ -157,6 +157,8 @@ PRESET_DURATA_TURNI = {
 # dei default della dataclass RegoleContrattuali in engine/models.py.
 REGOLE_DEFAULT = {
     "max_notti_consecutive": 2,
+    "max_mattine_consecutive": 3,
+    "max_pomeriggi_consecutivi": 3,
     "giorni_riposo_dopo_notte": 2,
     "max_giorni_consecutivi_lavorati": 5,
     "giorni_riposo_dopo_serie_lavorativa": 2,
@@ -518,6 +520,8 @@ def _init_state():
     # number_input corrispondente e' anch'esso legato con key=, cosa che
     # richiede chiavi flat, non annidate in un dict.
     st.session_state.max_notti_consecutive = demo.regole_contrattuali.max_notti_consecutive
+    st.session_state.max_mattine_consecutive = demo.regole_contrattuali.max_mattine_consecutive
+    st.session_state.max_pomeriggi_consecutivi = demo.regole_contrattuali.max_pomeriggi_consecutivi
     st.session_state.giorni_riposo_dopo_notte = demo.regole_contrattuali.giorni_riposo_dopo_notte
     st.session_state.max_giorni_consecutivi_lavorati = demo.regole_contrattuali.max_giorni_consecutivi_lavorati
     st.session_state.giorni_riposo_dopo_serie_lavorativa = demo.regole_contrattuali.giorni_riposo_dopo_serie_lavorativa
@@ -747,6 +751,26 @@ with tab_regole:
                 st.number_input(
                     "Massimo notti consecutive", key="max_notti_consecutive",
                     min_value=1, max_value=5,
+                )
+                st.number_input(
+                    "Massimo mattine consecutive", key="max_mattine_consecutive",
+                    min_value=1, max_value=10,
+                    help=(
+                        "Numero massimo di turni Mattino di fila per lo stesso "
+                        "lavoratore. Stesso principio del massimo notti "
+                        "consecutive, ma senza riposo obbligatorio dopo — a "
+                        "differenza delle notti, non serve un vero riposo "
+                        "fisiologico, solo evitare di superare il massimo. "
+                        "Tiene conto anche della situazione iniziale a cavallo "
+                        "con il mese precedente."
+                    ),
+                )
+                st.number_input(
+                    "Massimo pomeriggi consecutivi", key="max_pomeriggi_consecutivi",
+                    min_value=1, max_value=10,
+                    help=(
+                        "Come sopra, per i turni Pomeriggio."
+                    ),
                 )
                 st.number_input(
                     "Massimo giorni di lavoro consecutivi", key="max_giorni_consecutivi_lavorati",
@@ -1396,6 +1420,8 @@ def _costruisci_input() -> InputTurnazione:
 
     regole = RegoleContrattuali(
         max_notti_consecutive=int(st.session_state.max_notti_consecutive),
+        max_mattine_consecutive=int(st.session_state.max_mattine_consecutive),
+        max_pomeriggi_consecutivi=int(st.session_state.max_pomeriggi_consecutivi),
         giorni_riposo_dopo_notte=int(st.session_state.giorni_riposo_dopo_notte),
         max_giorni_consecutivi_lavorati=int(st.session_state.max_giorni_consecutivi_lavorati),
         giorni_riposo_dopo_serie_lavorativa=int(st.session_state.giorni_riposo_dopo_serie_lavorativa),

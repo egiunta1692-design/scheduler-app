@@ -256,6 +256,15 @@ serie e bloccando in quel caso *tutte* le fasce nella finestra di
 riposo, non solo M/P.
 - massimo notti consecutive (default 2, override possibile per singolo
   lavoratore)
+- **massimo mattine/pomeriggi consecutivi separatamente** (default **3**
+  ciascuno, `regole_contrattuali.max_mattine_consecutive` /
+  `max_pomeriggi_consecutivi`): stesso schema del massimo notti
+  consecutive (finestra scorrevole + margine per la situazione iniziale
+  a cavallo di mese), ma **senza riposo obbligatorio dopo** — differenza
+  intenzionale: a differenza delle notti, M e P non necessitano di un
+  vero riposo fisiologico dopo una serie, solo di non superare il
+  massimo (si puo' riprendere a lavorare il giorno stesso in cui si
+  raggiunge il limite, con una fascia diversa)
 - **massimo giorni di lavoro consecutivi, qualsiasi fascia** (default
   **5**, configurabile via `regole_contrattuali.max_giorni_
   consecutivi_lavorati`): oltre 5 giorni di fila con un turno assegnato

@@ -15,6 +15,14 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
        il riposo solo da li' in poi, non dopo ogni notte della serie
      - vincolo personale "mai notti" (lavoratore.vincoli_personali.mai_notti)
      - massimo notti consecutive (con override personale possibile)
+     - massimo mattine/pomeriggi consecutivi (default 3 ciascuno,
+       regole_contrattuali.max_mattine_consecutive/
+       max_pomeriggi_consecutivi): stesso schema del massimo notti
+       consecutive (finestra scorrevole + margine per situazione
+       iniziale a cavallo di mese), ma SENZA riposo obbligatorio dopo —
+       differenza intenzionale, richiesta esplicitamente: M/P non
+       necessitano di un vero riposo fisiologico dopo una serie, solo
+       di non superare il massimo
      - massimo giorni di lavoro consecutivi, qualsiasi fascia (default 5,
        configurabile via regole_contrattuali.max_giorni_consecutivi_
        lavorati; tiene conto anche di stato_iniziale per i giorni gia'
@@ -327,6 +335,51 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 finestra_iniziale = giorni[: margine + 1]
                 if finestra_iniziale:
                     model.Add(sum(x[(w, g, "N")] for g in finestra_iniziale) <= margine)
+
+    # Massimo mattine/pomeriggi consecutivi: stesso schema di "massimo
+    # notti consecutive" sopra (finestra scorrevole + margine per la
+    # situazione iniziale a cavallo di mese), applicato a M e P in un
+    # unico ciclo generalizzato — MA SENZA riposo obbligatorio dopo
+    # (differenza intenzionale rispetto alle notti, richiesta
+    # esplicitamente: M/P non hanno bisogno di un vero riposo
+    # fisiologico dopo una serie, solo di non superare il massimo).
+    for fascia_controllata, campo_max in (
+        ("M", "max_mattine_consecutive"), ("P", "max_pomeriggi_consecutivi")
+    ):
+        if fascia_controllata not in fasce:
+            continue
+        max_consec_fascia = getattr(dati.regole_contrattuali, campo_max)
+        for w in lavoratori_ids:
+            for start_idx in range(len(giorni) - max_consec_fascia):
+                finestra = giorni[start_idx: start_idx + max_consec_fascia + 1]
+                model.Add(sum(x[(w, g, fascia_controllata)] for g in finestra) <= max_consec_fascia)
+
+            # Turni della stessa fascia gia' fatti a cavallo con il mese
+            # precedente: stessa logica di date reali usata sopra per le
+            # notti pregresse.
+            date_precedenti_fascia = sorted(
+                (data_da_indice_mese_precedente(dati.periodo.anno, dati.periodo.mese, si.giorno)
+                 for si in dati.stato_iniziale
+                 if si.lavoratore_id == w and si.fascia == fascia_controllata and si.mese_precedente),
+                reverse=True,
+            )
+            consecutivi_pregressi_fascia = 0
+            data_attesa_fascia = data_giorno_prima_periodo
+            for data_turno in date_precedenti_fascia:
+                if data_turno == data_attesa_fascia:
+                    consecutivi_pregressi_fascia += 1
+                    data_attesa_fascia -= datetime.timedelta(days=1)
+                else:
+                    break
+
+            if consecutivi_pregressi_fascia > 0:
+                margine_fascia = max(max_consec_fascia - consecutivi_pregressi_fascia, 0)
+                finestra_iniziale_fascia = giorni[: margine_fascia + 1]
+                if finestra_iniziale_fascia:
+                    model.Add(
+                        sum(x[(w, g, fascia_controllata)] for g in finestra_iniziale_fascia)
+                        <= margine_fascia
+                    )
 
     # Massimo giorni lavorativi consecutivi (qualsiasi fascia, non solo
     # notte): stesso schema di "massimo notti consecutive" sopra, ma

@@ -66,6 +66,13 @@ class RichiestaSoft:
 class RegoleContrattuali:
     max_ore_settimanali: int = 36
     max_notti_consecutive: int = 2
+    # Massimo mattine/pomeriggi consecutivi: stesso principio del massimo
+    # notti consecutive sopra (finestra scorrevole + margine per la
+    # situazione iniziale a cavallo di mese), ma SENZA riposo obbligatorio
+    # dopo — differenza intenzionale: le notti hanno bisogno di un vero
+    # riposo fisiologico dopo una serie, M/P no (richiesta esplicita).
+    max_mattine_consecutive: int = 3
+    max_pomeriggi_consecutivi: int = 3
     min_riposo_ore_dopo_turno: int = 11
     vietato_dopo_notte: list[Fascia] = field(default_factory=lambda: ["M", "P"])
     # Numero di giorni di riposo obbligatorio dopo un turno notturno (o

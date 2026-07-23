@@ -1628,11 +1628,12 @@ def test_vieta_pm_consecutivo_nessuna_sequenza_nel_risultato():
                 assert False, f"{w} ha P il giorno {g} seguito da M il giorno {g + 1}, vietato"
 
 
-def test_vieta_pm_consecutivo_disattivato_di_default():
-    """Il vincolo hard e' disattivato di default: RegoleContrattuali()
-    senza argomenti non lo attiva."""
+def test_vieta_pm_consecutivo_attivo_di_default():
+    """Il vincolo hard e' ora attivo di default (invertito rispetto alla
+    versione precedente): RegoleContrattuali() senza argomenti lo attiva
+    gia', e il soft equivalente e' invece disattivato di default."""
     dati = RegoleContrattuali()
-    assert dati.vieta_pm_consecutivo is False
+    assert dati.vieta_pm_consecutivo is True
 
 
 def test_vieta_pm_consecutivo_blocca_confine_situazione_iniziale():
@@ -1900,7 +1901,120 @@ def test_bilancia_copertura_giornaliera_hard_accetta_scarto_sufficiente():
     )
 
 
-def test_bilancia_copertura_giornaliera_hard_disattivato_di_default():
-    """Il vincolo hard e' disattivato di default."""
+def test_bilancia_copertura_giornaliera_hard_attivo_di_default():
+    """Il vincolo hard e' ora attivo di default (invertito rispetto alla
+    versione precedente); il soft equivalente e' invece disattivato."""
     dati = ParametriFairness()
-    assert dati.bilancia_copertura_giornaliera_hard is False
+    assert dati.bilancia_copertura_giornaliera_hard is True
+    assert dati.bilancia_copertura_giornaliera is False
+
+
+# ---------------------------------------------------------------------------
+# Massimo mattine/pomeriggi consecutivi (come le notti, ma senza riposo
+# obbligatorio dopo)
+# ---------------------------------------------------------------------------
+
+def test_massimo_mattine_consecutive_rispettato():
+    """Con un solo lavoratore e fabbisogno che richiederebbe 4 mattine di
+    fila, il default di 3 mattine massime consecutive rende il problema
+    infeasible."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_max_mattine",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=4),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 5)],  # 4 giorni di fila
+        regole_contrattuali=RegoleContrattuali(),  # default: max_mattine_consecutive=3
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Con il default di 3 mattine consecutive massime, un lavoratore "
+        "unico non puo' coprire 4 mattine di fila senza violare il vincolo"
+    )
+
+
+def test_massimo_mattine_consecutive_configurabile():
+    """Con max_mattine_consecutive=4 esplicito, 4 mattine di fila per
+    l'unico lavoratore disponibile diventano ammissibili."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_max_mattine_configurabile",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=4),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="M", minimo=1) for g in range(1, 5)],
+        regole_contrattuali=RegoleContrattuali(max_mattine_consecutive=4),
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible", (
+        "Con max_mattine_consecutive=4, 4 mattine di fila per l'unico "
+        "lavoratore disponibile dovrebbero essere ammissibili"
+    )
+
+
+def test_massimo_pomeriggi_consecutivi_rispettato():
+    """Stesso test del massimo mattine, applicato ai pomeriggi (verifica
+    che i due vincoli siano davvero indipendenti, non lo stesso campo
+    riusato per errore)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_max_pomeriggi",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=4),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[Fabbisogno(giorno=g, fascia="P", minimo=1) for g in range(1, 5)],
+        regole_contrattuali=RegoleContrattuali(),  # default: max_pomeriggi_consecutivi=3
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "infeasible", (
+        "Con il default di 3 pomeriggi consecutivi massimi, un lavoratore "
+        "unico non puo' coprire 4 pomeriggi di fila senza violare il vincolo"
+    )
+
+
+def test_massimo_mattine_consecutive_nessun_riposo_obbligatorio_dopo():
+    """Differenza chiave rispetto alle notti: dopo aver raggiunto il
+    massimo di mattine consecutive, il lavoratore puo' riprendere a
+    lavorare SUBITO il giorno successivo (nessun riposo forzato) —
+    verificato forzando esattamente questo schema per l'unico lavoratore
+    disponibile: 3 mattine, poi UNA QUARTA mattina il giorno 4 (che
+    supererebbe il massimo, quindi deve fallire), MA il giorno 4 con un
+    turno Pomeriggio invece deve essere pienamente ammissibile (nessun
+    riposo richiesto)."""
+    dati = InputTurnazione(
+        reparto_id="rep_test_no_riposo_dopo_mattine",
+        categoria="infermieri",
+        periodo=Periodo(anno=2026, mese=6, giorno_inizio=1, giorno_fine=4),
+        lavoratori=[
+            Lavoratore(id="w1", nome="Unico Disponibile", ore_settimanali_min=0, ore_settimanali_max=48),
+        ],
+        fabbisogno=[
+            Fabbisogno(giorno=1, fascia="M", minimo=1),
+            Fabbisogno(giorno=2, fascia="M", minimo=1),
+            Fabbisogno(giorno=3, fascia="M", minimo=1),
+            Fabbisogno(giorno=4, fascia="P", minimo=1),  # non M: deve essere ammissibile senza riposo
+        ],
+        regole_contrattuali=RegoleContrattuali(),  # default: max_mattine_consecutive=3
+    )
+
+    risultato = genera_turni(dati)
+    assert risultato.stato == "feasible", (
+        "Dopo 3 mattine consecutive (il massimo), un turno Pomeriggio il "
+        "giorno successivo deve essere pienamente ammissibile — a "
+        "differenza delle notti, non c'e' riposo obbligatorio dopo"
+    )
+    turno_giorno4 = next(
+        (a.fascia for a in risultato.assegnazioni if a.lavoratore_id == "w1" and a.giorno == 4), None
+    )
+    assert turno_giorno4 == "P", (
+        f"Il giorno 4 doveva essere coperto con un turno P (unico modo di "
+        f"soddisfare il fabbisogno senza violare il massimo mattine), "
+        f"trovato invece: {turno_giorno4}"
+    )
