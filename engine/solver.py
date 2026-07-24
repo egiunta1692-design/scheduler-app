@@ -143,10 +143,28 @@ Livelli implementati, in ordine di priorita' (dal piu' al meno vincolante):
      (spesso inevitabile per la copertura), solo penalizzato, premiando
      implicitamente M->P su P->M
 
+PERFORMANCE DEL SOLVER (non cambiano la logica di alcun vincolo, solo
+quanto a lungo/come il solver cerca):
+- gap_limit (parametro di genera_turni, default 0.02): il solver si
+  ferma entro questa percentuale dell'ottimo teorico, invece di
+  continuare a cercare la prova matematica esatta — impercettibile
+  nella pratica per un problema di fairness multi-obiettivo come
+  questo. Configurabile dall'interfaccia ("Qualita' minima soluzione
+  accettata (%)").
+- num_search_workers=os.cpu_count() or 4: ricerca in parallelo su piu'
+  core invece di uno solo.
+- bilancia_fasce e bilancia_fasce_hard saltano la normalizzazione
+  proporzionata (vedi sopra) quando tutti i lavoratori considerati
+  hanno la stessa ore_settimanali_min E max: in quel caso e' un no-op
+  matematico (verificato numericamente), saltarlo riduce il numero di
+  variabili/vincoli CP-SAT nel caso comune (reparto con contratti
+  omogenei) senza alcun cambiamento nel risultato.
+
 Ogni livello e' testato in tests/test_solver.py.
 """
 
 import datetime
+import os
 
 from ortools.sat.python import cp_model
 
@@ -178,7 +196,9 @@ def _raggruppa_per_settimana_iso(anno: int, mese: int, giorni: list[int]) -> dic
     return settimane
 
 
-def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> OutputTurnazione:
+def genera_turni(
+    dati: InputTurnazione, tempo_max_secondi: float = 30.0, gap_limit: float = 0.02
+) -> OutputTurnazione:
     model = cp_model.CpModel()
 
     giorni = list(range(dati.periodo.giorno_inizio, dati.periodo.giorno_fine + 1))
@@ -552,30 +572,58 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             if len(lavoratori_considerati) < 2:
                 continue  # niente da confrontare con 0 o 1 lavoratore
 
-            capacita_riferimento_minuti = max(
-                next(l for l in dati.lavoratori if l.id == w).ore_settimanali_max * 60
-                for w in lavoratori_considerati
+            lavoratori_oggetto = [
+                next(l for l in dati.lavoratori if l.id == w) for w in lavoratori_considerati
+            ]
+
+            # OTTIMIZZAZIONE: se tutti i lavoratori considerati hanno la
+            # STESSA capacita' contrattuale (ore_settimanali_min E max
+            # uguali per tutti — controlliamo entrambi, anche se solo il
+            # massimo entra nel calcolo, per essere coerenti con l'idea
+            # di "stesso contratto per tutti"), la normalizzazione
+            # proporzionata sotto e' matematicamente un no-op: il
+            # fattore di conversione sarebbe identico (1) per ciascuno,
+            # quindi confrontare i conteggi normalizzati o quelli grezzi
+            # da' esattamente lo stesso risultato (verificato
+            # numericamente). La saltiamo del tutto in questo caso,
+            # riducendo il numero di variabili e vincoli CP-SAT nel caso
+            # comune (reparto con contratti omogenei, es. il dataset di
+            # esempio) senza alcun cambiamento nel risultato.
+            capacita_uniforme = (
+                len({l.ore_settimanali_max for l in lavoratori_oggetto}) == 1
+                and len({l.ore_settimanali_min for l in lavoratori_oggetto}) == 1
             )
 
-            conteggi_normalizzati = []
+            conteggi_confronto = []
             limiti_superiori = []
-            for w in lavoratori_considerati:
-                lavoratore = next(l for l in dati.lavoratori if l.id == w)
-                capacita_w_minuti = lavoratore.ore_settimanali_max * 60
-                fattore = (SCALE_SCARTO * capacita_riferimento_minuti) // capacita_w_minuti
-                conteggio_w = sum(x[(w, g, f)] for g in giorni)
-                limite_superiore = len(giorni) * fattore
-                conteggio_norm = model.NewIntVar(0, limite_superiore, f"conteggio_norm_{f}_{w}")
-                model.Add(conteggio_norm == conteggio_w * fattore)
-                conteggi_normalizzati.append(conteggio_norm)
-                limiti_superiori.append(limite_superiore)
+            if capacita_uniforme:
+                for w in lavoratori_considerati:
+                    conteggio_w = model.NewIntVar(0, len(giorni), f"conteggio_grezzo_{f}_{w}")
+                    model.Add(conteggio_w == sum(x[(w, g, f)] for g in giorni))
+                    conteggi_confronto.append(conteggio_w)
+                    limiti_superiori.append(len(giorni))
+                soglia_finale = scarto_max
+            else:
+                capacita_riferimento_minuti = max(
+                    l.ore_settimanali_max * 60 for l in lavoratori_oggetto
+                )
+                for w, lavoratore in zip(lavoratori_considerati, lavoratori_oggetto):
+                    capacita_w_minuti = lavoratore.ore_settimanali_max * 60
+                    fattore = (SCALE_SCARTO * capacita_riferimento_minuti) // capacita_w_minuti
+                    conteggio_w = sum(x[(w, g, f)] for g in giorni)
+                    limite_superiore = len(giorni) * fattore
+                    conteggio_norm = model.NewIntVar(0, limite_superiore, f"conteggio_norm_{f}_{w}")
+                    model.Add(conteggio_norm == conteggio_w * fattore)
+                    conteggi_confronto.append(conteggio_norm)
+                    limiti_superiori.append(limite_superiore)
+                soglia_finale = scarto_max * SCALE_SCARTO
 
             limite_superiore_globale = max(limiti_superiori)
             massimo_f = model.NewIntVar(0, limite_superiore_globale, f"massimo_{f}")
             minimo_f = model.NewIntVar(0, limite_superiore_globale, f"minimo_{f}")
-            model.AddMaxEquality(massimo_f, conteggi_normalizzati)
-            model.AddMinEquality(minimo_f, conteggi_normalizzati)
-            model.Add(massimo_f - minimo_f <= scarto_max * SCALE_SCARTO)
+            model.AddMaxEquality(massimo_f, conteggi_confronto)
+            model.AddMinEquality(minimo_f, conteggi_confronto)
+            model.Add(massimo_f - minimo_f <= soglia_finale)
 
     # Massimo ore settimanali da contratto: vedi blocco dedicato PIU' SOTTO,
     # dopo i vincoli admin e le richieste soft — serve sapere quali giorni
@@ -878,24 +926,44 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
             if len(lavoratori_considerati) < 2:
                 continue  # niente da bilanciare con 0 o 1 lavoratore
 
-            capacita_riferimento_minuti = max(
-                next(l for l in dati.lavoratori if l.id == w).ore_settimanali_max * 60
-                for w in lavoratori_considerati
+            lavoratori_oggetto = [
+                next(l for l in dati.lavoratori if l.id == w) for w in lavoratori_considerati
+            ]
+
+            # OTTIMIZZAZIONE (stessa di bilancia_fasce_hard sopra — vedi
+            # i commenti li' per il ragionamento completo): se tutti i
+            # lavoratori considerati hanno la stessa capacita'
+            # contrattuale (min E max uguali per tutti), la
+            # normalizzazione e' un no-op matematico. La saltiamo,
+            # riducendo variabili/vincoli CP-SAT nel caso comune senza
+            # alcun cambiamento nel risultato.
+            capacita_uniforme = (
+                len({l.ore_settimanali_max for l in lavoratori_oggetto}) == 1
+                and len({l.ore_settimanali_min for l in lavoratori_oggetto}) == 1
             )
 
             conteggi_normalizzati = []
             limiti_superiori = []
-            for w in lavoratori_considerati:
-                lavoratore = next(l for l in dati.lavoratori if l.id == w)
-                capacita_w_minuti = lavoratore.ore_settimanali_max * 60
-                fattore = (SCALE_BILANCIA_FASCE * capacita_riferimento_minuti) // capacita_w_minuti
-                c = model.NewIntVar(0, n_giorni, f"count_{w}_{f}")
-                model.Add(c == sum(x[(w, g, f)] for g in giorni))
-                limite_superiore = n_giorni * fattore
-                c_norm = model.NewIntVar(0, limite_superiore, f"count_norm_{w}_{f}")
-                model.Add(c_norm == c * fattore)
-                conteggi_normalizzati.append(c_norm)
-                limiti_superiori.append(limite_superiore)
+            if capacita_uniforme:
+                for w in lavoratori_considerati:
+                    c = model.NewIntVar(0, n_giorni, f"count_{w}_{f}")
+                    model.Add(c == sum(x[(w, g, f)] for g in giorni))
+                    conteggi_normalizzati.append(c)
+                    limiti_superiori.append(n_giorni)
+            else:
+                capacita_riferimento_minuti = max(
+                    l.ore_settimanali_max * 60 for l in lavoratori_oggetto
+                )
+                for w, lavoratore in zip(lavoratori_considerati, lavoratori_oggetto):
+                    capacita_w_minuti = lavoratore.ore_settimanali_max * 60
+                    fattore = (SCALE_BILANCIA_FASCE * capacita_riferimento_minuti) // capacita_w_minuti
+                    c = model.NewIntVar(0, n_giorni, f"count_{w}_{f}")
+                    model.Add(c == sum(x[(w, g, f)] for g in giorni))
+                    limite_superiore = n_giorni * fattore
+                    c_norm = model.NewIntVar(0, limite_superiore, f"count_norm_{w}_{f}")
+                    model.Add(c_norm == c * fattore)
+                    conteggi_normalizzati.append(c_norm)
+                    limiti_superiori.append(limite_superiore)
 
             n_considerati = len(lavoratori_considerati)
             limite_superiore_gruppo = max(limiti_superiori)
@@ -915,21 +983,34 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
                 scarto_media = model.NewIntVar(0, limite_superiore_gruppo, f"scarto_media_{w}_{f}")
                 model.Add(scarto_media >= c_norm - media_f)
                 model.Add(scarto_media >= media_f - c_norm)
-                # Diviso per SCALE_BILANCIA_FASCE (con AddDivisionEquality,
-                # coerente con come il resto del motore gestisce le
-                # divisioni intere) per riportare il peso nello stesso
-                # ordine di grandezza di prima della normalizzazione — la
-                # normalizzazione non deve alterare l'intensita' relativa
-                # di questo termine rispetto agli altri nell'obiettivo.
-                # Stesso motivo del bound sopra: uso limite_superiore_gruppo,
-                # non il limite del singolo lavoratore.
-                scarto_media_scala_originale = model.NewIntVar(
-                    0, limite_superiore_gruppo // SCALE_BILANCIA_FASCE, f"scarto_media_orig_{w}_{f}"
-                )
-                model.AddDivisionEquality(scarto_media_scala_originale, scarto_media, SCALE_BILANCIA_FASCE)
-                termini_obiettivo.append(
-                    dati.parametri_fairness.peso_bilancia_fasce * scarto_media_scala_originale
-                )
+
+                if capacita_uniforme:
+                    # Nessuna normalizzazione applicata: scarto_media e'
+                    # gia' nella scala originale, nessuna divisione da
+                    # annullare.
+                    termini_obiettivo.append(
+                        dati.parametri_fairness.peso_bilancia_fasce * scarto_media
+                    )
+                else:
+                    # Diviso per SCALE_BILANCIA_FASCE (con
+                    # AddDivisionEquality, coerente con come il resto del
+                    # motore gestisce le divisioni intere) per riportare
+                    # il peso nello stesso ordine di grandezza di prima
+                    # della normalizzazione — la normalizzazione non deve
+                    # alterare l'intensita' relativa di questo termine
+                    # rispetto agli altri nell'obiettivo. Stesso motivo
+                    # del bound sopra: uso limite_superiore_gruppo, non
+                    # il limite del singolo lavoratore.
+                    scarto_media_scala_originale = model.NewIntVar(
+                        0, limite_superiore_gruppo // SCALE_BILANCIA_FASCE,
+                        f"scarto_media_orig_{w}_{f}"
+                    )
+                    model.AddDivisionEquality(
+                        scarto_media_scala_originale, scarto_media, SCALE_BILANCIA_FASCE
+                    )
+                    termini_obiettivo.append(
+                        dati.parametri_fairness.peso_bilancia_fasce * scarto_media_scala_originale
+                    )
 
     if dati.parametri_fairness.bilancia_giorni_settimana:
         # Stessa ristrutturazione di bilancia_fasce sopra, stesso motivo:
@@ -1185,6 +1266,32 @@ def genera_turni(dati: InputTurnazione, tempo_max_secondi: float = 30.0) -> Outp
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = tempo_max_secondi
+    # Le due impostazioni sotto NON cambiano la logica di alcun vincolo ne'
+    # la qualita' della soluzione in modo percepibile — cambiano solo
+    # QUANTO A LUNGO il solver continua a cercare, non COSA cerca.
+    #
+    # relative_gap_limit: CP-SAT, dopo aver trovato una soluzione valida,
+    # continua a cercare per dimostrare che e' la MIGLIORE possibile
+    # (ottimalita' provata) — questa fase puo' richiedere molto piu' tempo
+    # della semplice ricerca di una buona soluzione. Con un problema di
+    # fairness multi-obiettivo come questo, una soluzione entro pochi
+    # punti percentuali dell'ottimo teorico e' indistinguibile nella
+    # pratica da quella perfetta (nessun coordinatore noterebbe la
+    # differenza guardando lo schema turni). Fermarsi qui invece di
+    # continuare a cercare la prova matematica esatta taglia via la fase
+    # piu' lenta della ricerca senza cambiare la qualita' percepita del
+    # risultato. Configurabile dall'interfaccia (default 0.02 = 2%,
+    # cioe' "qualita' minima 98%").
+    solver.parameters.relative_gap_limit = gap_limit
+    # num_search_workers: CP-SAT supporta la ricerca in parallelo su piu'
+    # core, ma di default ne usa solo uno. Rileviamo quanti sono
+    # disponibili (con un fallback prudente se la rilevazione fallisce,
+    # es. in alcuni ambienti containerizzati/sandbox) — piu' core
+    # significa piu' strategie di ricerca esplorate in parallelo, quasi
+    # sempre un'accelerazione significativa senza alcun cambiamento nella
+    # logica dei vincoli. In un ambiente con un solo core disponibile,
+    # equivale semplicemente al comportamento di prima (nessun danno).
+    solver.parameters.num_search_workers = os.cpu_count() or 4
     status = solver.Solve(model)
 
     if status == cp_model.INFEASIBLE:

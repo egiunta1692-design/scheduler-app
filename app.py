@@ -772,17 +772,6 @@ with tab_regole:
                         "Come sopra, per i turni Pomeriggio."
                     ),
                 )
-                st.number_input(
-                    "Massimo giorni di lavoro consecutivi", key="max_giorni_consecutivi_lavorati",
-                    min_value=1, max_value=10,
-                    help=(
-                        "Numero massimo di giorni di fila con un turno assegnato "
-                        "(qualsiasi fascia: M, P o N), oltre i quali serve almeno "
-                        "un giorno libero. Tiene conto anche dei giorni gia' "
-                        "lavorati nella situazione iniziale, a cavallo con il "
-                        "mese precedente."
-                    ),
-                )
             with col_b:
                 st.number_input(
                     "Giorni di riposo dopo la notte (o serie di notti)",
@@ -797,11 +786,22 @@ with tab_regole:
                     ),
                 )
                 st.number_input(
+                    "Massimo giorni di lavoro consecutivi", key="max_giorni_consecutivi_lavorati",
+                    min_value=1, max_value=10,
+                    help=(
+                        "Numero massimo di giorni di fila con un turno assegnato "
+                        "(qualsiasi fascia: M, P o N), oltre i quali serve almeno "
+                        "un giorno libero. Tiene conto anche dei giorni gia' "
+                        "lavorati nella situazione iniziale, a cavallo con il "
+                        "mese precedente."
+                    ),
+                )
+                st.number_input(
                     "Giorni di riposo dopo la serie massima di giorni lavorati",
                     key="giorni_riposo_dopo_serie_lavorativa", min_value=1, max_value=5,
                     help=(
                         "Quando un lavoratore raggiunge il numero massimo di "
-                        "giorni di lavoro consecutivi (a sinistra), i successivi "
+                        "giorni di lavoro consecutivi (sopra), i successivi "
                         "N giorni devono essere vero riposo (nessun turno di "
                         "alcun tipo) — stesso principio del riposo dopo la "
                         "notte, ma applicato alla serie generale di giorni "
@@ -829,15 +829,6 @@ with tab_regole:
                     f"norma una serie lunga di turni merita un riposo almeno "
                     f"pari a quello dopo una notte."
                 )
-
-            st.caption(
-                f"Con queste regole: dopo {st.session_state.max_notti_consecutive} "
-                f"notti consecutive servono {st.session_state.giorni_riposo_dopo_notte} "
-                f"giorni di riposo pieno; dopo "
-                f"{st.session_state.max_giorni_consecutivi_lavorati} giorni di "
-                f"lavoro di fila (qualsiasi turno) ne servono "
-                f"{st.session_state.giorni_riposo_dopo_serie_lavorativa}."
-            )
 
         with st.expander("🕐 Durata turni e ferie"):
             def _applica_preset_durata():
@@ -1498,10 +1489,31 @@ st.session_state["tempo_max_secondi"] = st.number_input(
 # posizioni possibili con step=5), un campo numerico permette di
 # digitare direttamente il valore desiderato.
 
+st.session_state.setdefault("qualita_minima_percento", 98.0)
+st.session_state["qualita_minima_percento"] = st.number_input(
+    "Qualita' minima soluzione accettata (%)",
+    min_value=50.0, max_value=100.0, value=st.session_state["qualita_minima_percento"], step=0.5,
+    help=(
+        "Il motore si ferma appena e' sicuro di aver raggiunto almeno "
+        "questa percentuale della soluzione teoricamente migliore, invece "
+        "di continuare a cercare la prova matematica esatta al 100% — "
+        "spesso la fase piu' lenta del calcolo, con un miglioramento "
+        "impercettibile nella pratica. Con il default (98%), il motore si "
+        "ferma quando e' sicuro di essere entro il 2% dall'ottimo "
+        "teorico. **100%** richiede la prova esatta (comportamento piu' "
+        "lento, nessuna tolleranza); valori piu' bassi (es. 90%) fermano "
+        "la ricerca prima, a costo di una soluzione potenzialmente un "
+        "po' meno rifinita. Non influisce sui vincoli rigidi (sempre "
+        "rispettati per intero) — solo su quanto a fondo il motore "
+        "ottimizza gli aspetti di fairness soft."
+    ),
+)
+
 if st.button("Genera turni", type="primary"):
     try:
         dati = _costruisci_input()
         tempo_max = st.session_state["tempo_max_secondi"]
+        gap_limit = (100.0 - st.session_state["qualita_minima_percento"]) / 100.0
 
         # Il calcolo vero e proprio (genera_turni, bloccante) gira in un
         # thread separato, cosi' lo script principale di Streamlit resta
@@ -1513,7 +1525,9 @@ if st.button("Genera turni", type="primary"):
 
         def _esegui_calcolo():
             try:
-                risultato_container["risultato"] = genera_turni(dati, tempo_max_secondi=tempo_max)
+                risultato_container["risultato"] = genera_turni(
+                    dati, tempo_max_secondi=tempo_max, gap_limit=gap_limit
+                )
             except Exception as exc:  # catturato qui, rilanciato piu' sotto nel thread principale
                 risultato_container["errore"] = exc
 
@@ -1539,6 +1553,7 @@ if st.button("Genera turni", type="primary"):
         st.session_state.risultato = risultato_container["risultato"]
         st.session_state.ultimo_input = dati
         st.session_state.tempo_max_usato = tempo_max
+        st.session_state.qualita_minima_usata = st.session_state["qualita_minima_percento"]
         st.success(f"Calcolo completato in {trascorso_totale:.1f}s")
     except Exception as e:
         st.error(f"Errore nella costruzione dei dati o nel calcolo: {e}")
@@ -1594,10 +1609,16 @@ if risultato is not None:
             st.success("Soluzione trovata: tutte le richieste sono state soddisfatte.")
 
         if risultato.ottimalita_provata:
+            qualita_usata = st.session_state.get("qualita_minima_usata", 98.0)
+            scarto_usato = 100.0 - qualita_usata
             st.caption(
-                f"✅ Ottimalita' dimostrata in {risultato.tempo_impiegato_secondi:.1f}s: "
-                "il motore ha verificato che non esiste una soluzione migliore "
-                "di questa. Aumentare il tempo massimo non cambierebbe il risultato."
+                f"✅ Soluzione ottima (entro il {scarto_usato:.1f}%) trovata in "
+                f"{risultato.tempo_impiegato_secondi:.1f}s: il motore ha "
+                "verificato che non esiste una soluzione significativamente "
+                f"migliore di questa (entro una tolleranza del {scarto_usato:.1f}%, "
+                "impostata nel campo 'Qualita' minima soluzione accettata' "
+                "sopra). Aumentare il tempo massimo non cambierebbe il "
+                "risultato in modo apprezzabile."
             )
         else:
             st.caption(

@@ -158,21 +158,56 @@ codice, gli aggiornamenti si propagano subito, nello stesso giro.
 
 ## Tempo massimo di calcolo e ottimalita'
 
-Sopra il pulsante "Genera turni" c'e' uno slider **"Tempo massimo di
-calcolo"** (default 30s, fino a 300s). Il motore (CP-SAT) lavora per
-approssimazioni successive verso la soluzione migliore: se il tempo scade
-prima di aver *dimostrato* che la soluzione trovata e' la migliore
-possibile, la restituisce comunque (stato `FEASIBLE` invece di `OPTIMAL`).
+Sopra il pulsante "Genera turni" ci sono due campi numerici:
+**"Tempo massimo di calcolo"** (default 30s, fino a 86400s = 24 ore —
+non e' un limite tecnico reale, ne' OR-Tools ne' Streamlit ne hanno
+uno, e' solo un tetto pratico oltre il quale non avrebbe senso per uno
+strumento interattivo) e **"Qualita' minima soluzione accettata (%)"**
+(default 98%, corrispondente a `relative_gap_limit=0.02` — vedi sotto).
+Il motore (CP-SAT) lavora per approssimazioni successive verso la
+soluzione migliore: se il tempo scade prima di aver *dimostrato* che la
+soluzione trovata e' la migliore possibile, la restituisce comunque
+(stato `FEASIBLE` invece di `OPTIMAL`). Durante il calcolo, un
+contatore live (in un thread separato) mostra il tempo trascorso
+rispetto al limite impostato.
+
+**Impostazioni di performance del solver** (`engine/solver.py`), a
+rischio comportamentale nullo — cambiano solo *quanto a lungo/come* il
+solver cerca, non *cosa* cerca:
+- `relative_gap_limit` (default 0.02 = 2%, **configurabile
+  dall'interfaccia** tramite "Qualita' minima soluzione accettata"):
+  il solver si ferma quando e' sicuro di essere entro questa
+  percentuale della soluzione ottima teorica, anche senza dimostrarlo
+  con certezza matematica assoluta — per un problema di fairness
+  multi-obiettivo come questo, una soluzione entro pochi punti
+  percentuali e' indistinguibile nella pratica da quella perfetta.
+  Taglia via la fase piu' lenta della ricerca (dimostrare l'ottimalita'
+  esatta) senza cambiare la qualita' percepita del risultato. Il
+  messaggio di ottimalita' dopo ogni generazione mostra la tolleranza
+  effettivamente usata per quella specifica generazione (puo' differire
+  dal valore attuale nel campo, se cambiato senza rigenerare — stesso
+  meccanismo gia' in uso per il tempo massimo).
+- `num_search_workers = os.cpu_count() or 4`: ricerca in parallelo su
+  piu' core invece che su uno solo (il default di CP-SAT). In un
+  ambiente con un solo core disponibile, equivale al comportamento di
+  prima (nessun danno).
+- `bilancia_fasce`/`bilancia_fasce_hard` saltano la normalizzazione
+  proporzionata (vedi sopra) quando tutti i lavoratori considerati
+  hanno la stessa `ore_settimanali_min` E `max`: in quel caso e' un
+  no-op matematico (verificato numericamente — stesso risultato,
+  meno variabili/vincoli CP-SAT), utile nel caso comune di un reparto
+  con contratti omogenei (es. il dataset di esempio).
 
 Dopo ogni generazione, un messaggio indica se l'**ottimalita' e' stata
-dimostrata**:
-- ✅ dimostrata → aumentare il tempo non cambierebbe il risultato
+dimostrata** (entro la tolleranza configurata):
+- ✅ dimostrata → aumentare il tempo non cambierebbe il risultato in
+  modo apprezzabile
 - ⏱️ tempo scaduto prima di dimostrarla → potrebbe esistere una soluzione
-  migliore; alzare lo slider e rigenerare puo' aiutare
+  migliore; alzare il campo e rigenerare puo' aiutare
 
 **"Nessuna soluzione trovata" vs "tempo scaduto" — due cose diverse.**
-Se non trova nulla, l'app ora distingue due situazioni ben diverse (prima
-venivano confuse, un bug corretto):
+Se non trova nulla, l'app distingue due situazioni ben diverse (in
+passato venivano confuse, un bug corretto):
 - **Infeasible** (dimostrato impossibile): il motore ha *dimostrato* che
   non esiste alcuna soluzione valida. Serve ridurre il fabbisogno minimo
   o i vincoli forzati.
@@ -182,7 +217,11 @@ venivano confuse, un bug corretto):
   complessi (tanti lavoratori, vincoli stretti come il riposo dopo
   notte) il motore potrebbe semplicemente aver bisogno di piu' tempo.
   In questo caso alza il "Tempo massimo di calcolo" e rigenera prima di
-  concludere che i vincoli sono incompatibili.
+  concludere che i vincoli sono incompatibili. Il messaggio mostra
+  separatamente il tempo effettivamente impiegato e il limite che era
+  configurato per quella specifica generazione (che potrebbe differire
+  dal valore attuale nel campo, se l'hai cambiato senza rigenerare).
+
 
 Premi "Genera turni" per vedere:
 - **lo schema turni colorato**, che include anche le colonne della
